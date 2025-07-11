@@ -1,0 +1,102 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+data/logs/
+
+# Database
+*.db
+*.sqlite
+
+# Test coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Cache
+.cache/
+data/cache/
+
+# MediaCrawler generated files
+*_user_data_dir/
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# Docker
+.dockerignore
+
+# Local config override
+.env.local
+config.local.py
+# Claude Code Kit - Generated Files
+claude-code-kit/
+.claude/
+.mcp/
+.mcp.json
+mcp-*.json
+*.tmp
+database.sqlite
+*.sqlite
+*.log
+*.cache
+*.backup
+*.bak
+.env.local
+CLAUDE.md
+rules/
