@@ -2,7 +2,7 @@
 aiofiles>=23.2.1
 aiomysql>=0.2.0
 fastapi>=0.110.0
-uvicorn>=0.29.0
+uvicorn[standard]>=0.29.0
 httpx>=0.24.0
 pydantic>=2.5.0
 tenacity>=8.2.0
@@ -17,6 +17,12 @@ pytest-cov>=4.1.0
 structlog>=23.0.0
 redis>=4.6.0
 click>=8.1.0
+
+# FastAPI增强依赖
+python-multipart>=0.0.6  # 文件上传支持
+psutil>=5.9.0  # 系统监控
+jinja2>=3.1.2  # 模板引擎（可选）
+python-jose[cryptography]>=3.3.0  # JWT支持（可选）
 
 # 开发依赖
 black>=23.0.0

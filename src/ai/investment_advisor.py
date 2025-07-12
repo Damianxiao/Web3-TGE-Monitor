@@ -286,8 +286,8 @@ class InvestmentAdvisor:
             "investment_rating": 3,
             "risk_assessment": "Medium",
             "potential_score": 3,
-            "key_advantages": []，
-            "key_risks": ["信息不足，需要进一步研究"]，
+            "key_advantages": [],
+            "key_risks": ["信息不足，需要进一步研究"],
             "short_term_outlook": "由于AI分析不可用，无法提供明确建议",
             "recommendation": "谨慎",
             "reason": "AI分析系统暂时不可用，建议人工审核",

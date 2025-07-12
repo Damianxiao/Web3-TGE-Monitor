@@ -3,7 +3,8 @@
 """
 import os
 from typing import List, Optional
-from pydantic import BaseSettings, validator
+from pydantic_settings import BaseSettings
+from pydantic import field_validator
 
 
 class Settings(BaseSettings):
@@ -46,7 +47,8 @@ class Settings(BaseSettings):
     # Web3关键词
     web3_keywords: str = "TGE,代币发行,空投,IDO,新币上线,DeFi,Web3项目,撸毛,开启测试网,速撸"
     
-    @validator('web3_keywords')
+    @field_validator('web3_keywords')
+    @classmethod
     def parse_keywords(cls, v):
         if isinstance(v, str):
             return [keyword.strip() for keyword in v.split(',') if keyword.strip()]
@@ -64,9 +66,10 @@ class Settings(BaseSettings):
             return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/{self.redis_db}"
         return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    model_config = {
+        "env_file": ".env",
+        "case_sensitive": False
+    }
 
 
 # 全局设置实例

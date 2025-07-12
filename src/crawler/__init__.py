@@ -1,12 +1,11 @@
 """
-,k!WË
-ê¨èŒï(sğ
+å¤šå¹³å°çˆ¬è™«æ¨¡å—
 """
 from .platform_factory import PlatformFactory, auto_register_platforms
 from .crawler_manager import crawler_manager
 from .models import Platform, RawContent, CrawlTask, CrawlResult
 
-# ê¨èŒsğ
+# è‡ªåŠ¨æ³¨å†Œå¹³å°
 auto_register_platforms()
 
 __all__ = [

@@ -143,6 +143,172 @@ class TGEProjectCRUD:
             "sentiment_distribution": sentiment_stats,
             "processing_rate": round(processed_count / total_count * 100, 2) if total_count > 0 else 0
         }
+    
+    @staticmethod
+    async def count_all(session: AsyncSession) -> int:
+        """统计所有项目数量"""
+        result = await session.execute(select(func.count(TGEProject.id)))
+        return result.scalar()
+    
+    @staticmethod
+    async def count_processed(session: AsyncSession) -> int:
+        """统计已处理项目数量"""
+        result = await session.execute(
+            select(func.count(TGEProject.id)).where(TGEProject.is_processed == True)
+        )
+        return result.scalar()
+    
+    @staticmethod
+    async def count_unprocessed(session: AsyncSession) -> int:
+        """统计未处理项目数量"""
+        result = await session.execute(
+            select(func.count(TGEProject.id)).where(TGEProject.is_processed == False)
+        )
+        return result.scalar()
+    
+    @staticmethod
+    async def count_recent(session: AsyncSession, since: datetime) -> int:
+        """统计指定时间以来的项目数量"""
+        result = await session.execute(
+            select(func.count(TGEProject.id)).where(TGEProject.created_at >= since)
+        )
+        return result.scalar()
+    
+    @staticmethod
+    async def get_paginated(
+        session: AsyncSession, 
+        page: int = 1, 
+        size: int = 20,
+        filters: Dict[str, Any] = None,
+        sort_by: str = "created_at",
+        sort_order: str = "desc"
+    ) -> tuple[List[TGEProject], int]:
+        """分页获取项目列表"""
+        # 构建基础查询
+        query = select(TGEProject).where(TGEProject.is_valid == True)
+        count_query = select(func.count(TGEProject.id)).where(TGEProject.is_valid == True)
+        
+        # 应用过滤条件
+        if filters:
+            conditions = []
+            for key, value in filters.items():
+                if key == 'project_category' and value:
+                    conditions.append(TGEProject.project_category == value)
+                elif key == 'risk_level' and value:
+                    conditions.append(TGEProject.risk_level == value)
+                elif key == 'source_platform' and value:
+                    conditions.append(TGEProject.source_platform == value)
+                elif key == 'has_tge_date' and value is not None:
+                    if value:
+                        conditions.append(TGEProject.tge_date.isnot(None))
+                    else:
+                        conditions.append(TGEProject.tge_date.is_(None))
+                elif key == 'is_processed' and value is not None:
+                    conditions.append(TGEProject.is_processed == value)
+            
+            if conditions:
+                query = query.where(and_(*conditions))
+                count_query = count_query.where(and_(*conditions))
+        
+        # 应用排序
+        sort_column = getattr(TGEProject, sort_by, TGEProject.created_at)
+        if sort_order.lower() == "desc":
+            query = query.order_by(sort_column.desc())
+        else:
+            query = query.order_by(sort_column.asc())
+        
+        # 应用分页
+        offset = (page - 1) * size
+        query = query.offset(offset).limit(size)
+        
+        # 执行查询
+        items_result = await session.execute(query)
+        total_result = await session.execute(count_query)
+        
+        items = list(items_result.scalars().all())
+        total = total_result.scalar()
+        
+        return items, total
+    
+    @staticmethod
+    async def search(
+        session: AsyncSession, 
+        query: str,
+        page: int = 1, 
+        size: int = 20,
+        filters: Dict[str, Any] = None
+    ) -> tuple[List[TGEProject], int]:
+        """搜索项目"""
+        # 构建搜索条件
+        search_conditions = [
+            TGEProject.project_name.contains(query),
+            TGEProject.token_symbol.contains(query),
+            TGEProject.raw_content.contains(query),
+            TGEProject.tge_summary.contains(query),
+            TGEProject.key_features.contains(query)
+        ]
+        
+        base_query = select(TGEProject).where(
+            and_(
+                TGEProject.is_valid == True,
+                or_(*search_conditions)
+            )
+        )
+        
+        count_query = select(func.count(TGEProject.id)).where(
+            and_(
+                TGEProject.is_valid == True,
+                or_(*search_conditions)
+            )
+        )
+        
+        # 应用过滤条件
+        if filters:
+            conditions = []
+            for key, value in filters.items():
+                if key == 'project_category' and value:
+                    conditions.append(TGEProject.project_category == value)
+                elif key == 'risk_level' and value:
+                    conditions.append(TGEProject.risk_level == value)
+                elif key == 'source_platform' and value:
+                    conditions.append(TGEProject.source_platform == value)
+            
+            if conditions:
+                base_query = base_query.where(and_(*conditions))
+                count_query = count_query.where(and_(*conditions))
+        
+        # 排序和分页
+        base_query = base_query.order_by(TGEProject.created_at.desc())
+        offset = (page - 1) * size
+        base_query = base_query.offset(offset).limit(size)
+        
+        # 执行查询
+        items_result = await session.execute(base_query)
+        total_result = await session.execute(count_query)
+        
+        items = list(items_result.scalars().all())
+        total = total_result.scalar()
+        
+        return items, total
+    
+    @staticmethod
+    async def get_platform_stats(session: AsyncSession) -> Dict[str, int]:
+        """获取各平台项目数量统计"""
+        result = await session.execute(
+            select(TGEProject.source_platform, func.count(TGEProject.id))
+            .group_by(TGEProject.source_platform)
+        )
+        return dict(result.all())
+    
+    @staticmethod
+    async def get_category_stats(session: AsyncSession) -> Dict[str, int]:
+        """获取各分类项目数量统计"""
+        result = await session.execute(
+            select(TGEProject.project_category, func.count(TGEProject.id))
+            .where(TGEProject.project_category.isnot(None))
+            .group_by(TGEProject.project_category)
+        )
+        return dict(result.all())
 
 
 class CrawlerLogCRUD:
@@ -158,12 +324,15 @@ class CrawlerLogCRUD:
         return log
     
     @staticmethod
-    async def get_recent_logs(session: AsyncSession, platform: Optional[str] = None, limit: int = 50) -> List[CrawlerLog]:
+    async def get_recent_logs(session: AsyncSession, platform: Optional[str] = None, limit: int = 50, since: Optional[datetime] = None) -> List[CrawlerLog]:
         """获取最近的爬虫日志"""
         query = select(CrawlerLog)
         
         if platform:
             query = query.where(CrawlerLog.platform == platform)
+        
+        if since:
+            query = query.where(CrawlerLog.created_at >= since)
         
         query = query.order_by(CrawlerLog.created_at.desc()).limit(limit)
         result = await session.execute(query)
@@ -188,3 +357,24 @@ class AIProcessLogCRUD:
         query = select(AIProcessLog).order_by(AIProcessLog.created_at.desc()).limit(limit)
         result = await session.execute(query)
         return list(result.scalars().all())
+    
+    @staticmethod
+    async def update_log_status(session: AsyncSession, project_id: int, analysis_type: str, update_data: Dict[str, Any]) -> bool:
+        """更新日志状态"""
+        try:
+            await session.execute(
+                update(AIProcessLog)
+                .where(
+                    and_(
+                        AIProcessLog.project_id == project_id,
+                        AIProcessLog.analysis_type == analysis_type
+                    )
+                )
+                .values(**update_data)
+            )
+            await session.commit()
+            return True
+        except Exception as e:
+            await session.rollback()
+            logger.error("Failed to update AI log status", error=str(e))
+            return False
