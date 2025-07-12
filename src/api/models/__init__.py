@@ -27,9 +27,6 @@ from .requests import (
     ProjectSearchRequest,
     ProjectSummaryResponse,
     ProjectDetailResponse,
-    
-    # 系统请求
-    SystemStatsResponse
 )
 
 from .responses import (
@@ -39,6 +36,7 @@ from .responses import (
     TaskResponse,
     BatchOperationResponse,
     HealthCheckResponse,
+    SystemStatsResponse,
     
     # 工具函数
     success_response,

@@ -213,6 +213,34 @@ class CrawlerManager:
     async def list_active_tasks(self) -> List[CrawlTask]:
         """列出活跃任务"""
         return list(self.active_tasks.values())
+
+    async def get_tasks(self, status: str = None, platform: Platform = None, limit: int = 50) -> List[CrawlTask]:
+        """
+        获取任务列表，支持过滤
+
+        Args:
+            status: 任务状态过滤
+            platform: 平台过滤
+            limit: 返回数量限制
+
+        Returns:
+            任务列表
+        """
+        tasks = list(self.active_tasks.values())
+
+        # 按状态过滤
+        if status:
+            tasks = [task for task in tasks if task.status == status]
+
+        # 按平台过滤
+        if platform:
+            tasks = [task for task in tasks if task.platform == platform]
+
+        # 按创建时间倒序排序
+        tasks.sort(key=lambda x: x.created_at, reverse=True)
+
+        # 限制返回数量
+        return tasks[:limit]
     
     async def cleanup_old_tasks(self, hours: int = 24):
         """清理旧任务"""

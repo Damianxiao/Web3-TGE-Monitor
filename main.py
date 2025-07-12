@@ -10,6 +10,9 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import structlog
 import time
+import json
+import sys
+from datetime import datetime
 from contextlib import asynccontextmanager
 
 from src.config.settings import settings
@@ -20,6 +23,14 @@ from src.api.middleware.error_handler import ErrorHandlerMiddleware
 from src.api.models.responses import ErrorResponse
 
 logger = structlog.get_logger()
+
+
+# 自定义JSON编码器处理datetime
+class CustomJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
 
 
 @asynccontextmanager
@@ -125,14 +136,16 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     """
     HTTP异常处理器
     """
+    error_response = ErrorResponse(
+        error=True,
+        message=exc.detail,
+        status_code=exc.status_code,
+        path=str(request.url)
+    )
+    
     return JSONResponse(
         status_code=exc.status_code,
-        content=ErrorResponse(
-            error=True,
-            message=exc.detail,
-            status_code=exc.status_code,
-            path=str(request.url)
-        ).dict()
+        content=json.loads(json.dumps(error_response.dict(), cls=CustomJSONEncoder))
     )
 
 
@@ -149,15 +162,17 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "type": error["type"]
         })
     
+    error_response = ErrorResponse(
+        error=True,
+        message="Validation Error",
+        status_code=422,
+        path=str(request.url),
+        details=error_details
+    )
+    
     return JSONResponse(
         status_code=422,
-        content=ErrorResponse(
-            error=True,
-            message="Validation Error",
-            status_code=422,
-            path=str(request.url),
-            details=error_details
-        ).dict()
+        content=json.loads(json.dumps(error_response.dict(), cls=CustomJSONEncoder))
     )
 
 
@@ -171,14 +186,16 @@ async def general_exception_handler(request: Request, exc: Exception):
                 path=str(request.url),
                 method=request.method)
     
+    error_response = ErrorResponse(
+        error=True,
+        message="Internal Server Error" if not settings.app_debug else str(exc),
+        status_code=500,
+        path=str(request.url)
+    )
+    
     return JSONResponse(
         status_code=500,
-        content=ErrorResponse(
-            error=True,
-            message="Internal Server Error" if not settings.app_debug else str(exc),
-            status_code=500,
-            path=str(request.url)
-        ).dict()
+        content=json.loads(json.dumps(error_response.dict(), cls=CustomJSONEncoder))
     )
 
 

@@ -2,7 +2,7 @@
 API响应模型
 定义统一的API响应格式
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any, Union, TypeVar, Generic
 from datetime import datetime
 
@@ -12,6 +12,8 @@ T = TypeVar('T')
 
 class ApiResponse(BaseModel, Generic[T]):
     """通用API响应模型"""
+    model_config = ConfigDict(json_encoders={datetime: lambda dt: dt.isoformat()})
+    
     success: bool = Field(True, description="请求是否成功")
     message: str = Field("成功", description="响应消息")
     data: Optional[T] = Field(None, description="响应数据")
@@ -88,6 +90,22 @@ class HealthCheckResponse(BaseModel):
     services: Dict[str, str] = Field(..., description="各服务状态")
     version: str = Field(..., description="API版本")
     uptime: Optional[float] = Field(None, description="运行时间")
+
+
+class SystemStatsResponse(BaseModel):
+    """系统统计响应模型"""
+    model_config = ConfigDict(json_encoders={datetime: lambda dt: dt.isoformat()})
+    
+    total_projects: int = Field(..., description="总项目数")
+    processed_projects: int = Field(..., description="已处理项目数")
+    unprocessed_projects: int = Field(..., description="未处理项目数")
+    platform_stats: Dict[str, int] = Field(..., description="平台统计")
+    category_stats: Dict[str, int] = Field(..., description="分类统计")
+    recent_24h: int = Field(..., description="24小时内项目数")
+    recent_7d: int = Field(..., description="7天内项目数")
+    api_version: str = Field(..., description="API版本")
+    uptime: float = Field(..., description="运行时间")
+    last_updated: datetime = Field(..., description="最后更新时间")
 
 
 # 便捷函数

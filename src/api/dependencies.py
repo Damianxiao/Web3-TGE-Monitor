@@ -15,10 +15,17 @@ def get_request_id(request: Request) -> Optional[str]:
     return getattr(request.state, 'request_id', None)
 
 
-async def get_db() -> AsyncSession:
+async def get_db():
     """获取数据库会话"""
-    async with get_db_session() as session:
+    db_gen = get_db_session()
+    session = await db_gen.__anext__()
+    try:
         yield session
+    finally:
+        try:
+            await db_gen.__anext__()
+        except StopAsyncIteration:
+            pass
 
 
 def validate_api_access(request: Request) -> bool:

@@ -3,6 +3,8 @@
 统一处理应用中的异常和错误
 """
 import traceback
+import json
+from datetime import datetime
 from typing import Callable
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
@@ -13,6 +15,14 @@ from ..models.responses import ErrorResponse
 from ...config.settings import settings
 
 logger = structlog.get_logger()
+
+
+# 自定义JSON编码器处理datetime
+class CustomJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
 
 
 class ErrorHandlerMiddleware(BaseHTTPMiddleware):
@@ -157,5 +167,5 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
         
         return JSONResponse(
             status_code=status_code,
-            content=error_response.dict(exclude_none=True)
+            content=json.loads(json.dumps(error_response.dict(exclude_none=True), cls=CustomJSONEncoder))
         )

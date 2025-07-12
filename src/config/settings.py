@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     """应用设置"""
     
     # 数据库配置
+    database_url: str = "mysql+aiomysql://root:123456@localhost:3306/web3_tge_monitor"
     mysql_host: str = "localhost"
     mysql_port: int = 3306
     mysql_user: str = "root"
@@ -74,11 +75,6 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return [keyword.strip() for keyword in v.split(',') if keyword.strip()]
         return v
-    
-    @property
-    def database_url(self) -> str:
-        """构建数据库连接URL"""
-        return f"mysql+aiomysql://{self.mysql_user}:{self.mysql_password}@{self.mysql_host}:{self.mysql_port}/{self.mysql_db}"
     
     @property
     def redis_url(self) -> str:

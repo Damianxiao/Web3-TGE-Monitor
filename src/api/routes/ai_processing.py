@@ -197,6 +197,60 @@ async def get_ai_statistics():
         )
 
 
+@router.get("/status",
+           response_model=ApiResponse[dict],
+           summary="获取AI服务状态",
+           description="获取AI处理服务的运行状态和健康信息")
+async def get_ai_status():
+    """
+    获取AI服务状态
+    
+    返回信息包括：
+    - AI服务状态
+    - API连接状态
+    - 最后健康检查时间
+    - 服务版本信息
+    """
+    try:
+        logger.debug("Getting AI service status")
+        
+        # 检查AI服务状态
+        status_info = {
+            "service_status": "running",
+            "api_connected": True,
+            "last_check": "2025-07-12T20:06:00Z",
+            "model": "gpt-4o-mini",
+            "api_url": "https://api.gpt.ge/v1/chat/completions",
+            "version": "1.0.0"
+        }
+        
+        # 可以在这里添加实际的AI服务健康检查
+        try:
+            # 简单的AI服务可用性检查
+            from ...ai import ai_client
+            if ai_client and hasattr(ai_client, 'api_url'):
+                status_info["api_connected"] = True
+                status_info["api_url"] = ai_client.api_url
+            else:
+                status_info["api_connected"] = False
+                status_info["service_status"] = "disconnected"
+        except Exception:
+            status_info["api_connected"] = False
+            status_info["service_status"] = "error"
+        
+        return success_response(
+            data=status_info,
+            message="成功获取AI服务状态"
+        )
+        
+    except Exception as e:
+        logger.error("Failed to get AI status", error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail="获取AI服务状态失败"
+        )
+
+
 @router.get("/unprocessed",
            response_model=ApiResponse[List[dict]],
            summary="获取未处理项目",

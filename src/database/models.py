@@ -30,6 +30,8 @@ class TGEProject(Base):
     
     # AI处理结果
     ai_summary = Column(Text, nullable=True, comment="AI生成的摘要")
+    tge_summary = Column(Text, nullable=True, comment="TGE项目简介")
+    key_features = Column(Text, nullable=True, comment="项目关键特性")
     sentiment = Column(String(20), nullable=True, comment="情感分析结果: 看涨/看跌/中性")
     recommendation = Column(String(50), nullable=True, comment="投资建议: 关注/谨慎/回避")
     risk_level = Column(String(20), nullable=True, comment="风险等级: 高/中/低")

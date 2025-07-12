@@ -6,6 +6,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 import psutil
 import sys
@@ -17,6 +18,7 @@ from ..models import (
 from ...database.database import get_db_session
 from ...database.crud import TGEProjectCRUD, CrawlerLogCRUD
 from ...config.settings import settings
+from ..dependencies import get_db
 
 logger = structlog.get_logger()
 
@@ -133,7 +135,7 @@ async def health_check():
            response_model=ApiResponse[SystemStatsResponse],
            summary="系统统计信息",
            description="获取系统的综合统计信息")
-async def get_system_stats():
+async def get_system_stats(db: AsyncSession = Depends(get_db)):
     """
     获取系统统计信息
     
@@ -147,28 +149,27 @@ async def get_system_stats():
     try:
         logger.info("Getting system statistics")
         
-        async with get_db_session() as session:
-            # 项目数量统计
-            total_projects = await TGEProjectCRUD.count_all(session)
-            processed_projects = await TGEProjectCRUD.count_processed(session)
-            unprocessed_projects = total_projects - processed_projects
-            
-            # 平台统计
-            platform_stats = await TGEProjectCRUD.get_platform_stats(session)
-            
-            # 分类统计
-            category_stats = await TGEProjectCRUD.get_category_stats(session)
-            
-            # 时间统计
-            now = datetime.utcnow()
-            recent_24h = await TGEProjectCRUD.count_recent(
-                session, 
-                since=now - timedelta(hours=24)
-            )
-            recent_7d = await TGEProjectCRUD.count_recent(
-                session, 
-                since=now - timedelta(days=7)
-            )
+        # 项目数量统计
+        total_projects = await TGEProjectCRUD.count_all(db)
+        processed_projects = await TGEProjectCRUD.count_processed(db)
+        unprocessed_projects = total_projects - processed_projects
+        
+        # 平台统计
+        platform_stats = await TGEProjectCRUD.get_platform_stats(db)
+        
+        # 分类统计
+        category_stats = await TGEProjectCRUD.get_category_stats(db)
+        
+        # 时间统计
+        now = datetime.utcnow()
+        recent_24h = await TGEProjectCRUD.count_recent(
+            db, 
+            since=now - timedelta(hours=24)
+        )
+        recent_7d = await TGEProjectCRUD.count_recent(
+            db, 
+            since=now - timedelta(days=7)
+        )
         
         # 计算运行时间
         uptime = time.time() - START_TIME
@@ -282,6 +283,7 @@ async def get_system_config():
            summary="获取系统日志",
            description="获取爬虫执行日志和AI处理日志")
 async def get_system_logs(
+    db: AsyncSession = Depends(get_db),
     log_type: Optional[str] = Query(None, description="日志类型（crawler/ai）"),
     limit: int = Query(50, ge=1, le=200, description="返回数量限制"),
     hours: int = Query(24, ge=1, le=168, description="时间范围（小时）")
@@ -303,34 +305,33 @@ async def get_system_logs(
         
         logs = []
         
-        async with get_db_session() as session:
-            # 获取爬虫日志
-            if log_type is None or log_type == "crawler":
-                crawler_logs = await CrawlerLogCRUD.get_recent_logs(
-                    session, 
-                    since=since_time, 
-                    limit=limit // 2 if log_type is None else limit
-                )
-                
-                for log in crawler_logs:
-                    logs.append({
-                        "type": "crawler",
-                        "id": log.id,
-                        "platform": log.platform,
-                        "keywords": log.keywords,
-                        "items_found": log.items_found,
-                        "items_saved": log.items_saved,
-                        "status": log.status,
-                        "error_message": log.error_message,
-                        "execution_time": log.execution_time,
-                        "created_at": log.created_at
-                    })
+        # 获取爬虫日志
+        if log_type is None or log_type == "crawler":
+            crawler_logs = await CrawlerLogCRUD.get_recent_logs(
+                db, 
+                since=since_time, 
+                limit=limit // 2 if log_type is None else limit
+            )
             
-            # 获取AI处理日志
-            if log_type is None or log_type == "ai":
-                # 这里可以添加AI日志查询
-                # ai_logs = await AIProcessLogCRUD.get_recent_logs(...)
-                pass
+            for log in crawler_logs:
+                logs.append({
+                    "type": "crawler",
+                    "id": log.id,
+                    "platform": log.platform,
+                    "keywords": log.keywords,
+                    "items_found": log.items_found,
+                    "items_saved": log.items_saved,
+                    "status": log.status,
+                    "error_message": log.error_message,
+                    "execution_time": log.execution_time,
+                    "created_at": log.created_at
+                })
+        
+        # 获取AI处理日志
+        if log_type is None or log_type == "ai":
+            # 这里可以添加AI日志查询
+            # ai_logs = await AIProcessLogCRUD.get_recent_logs(...)
+            pass
         
         # 按时间排序
         logs.sort(key=lambda x: x.get('created_at', datetime.min), reverse=True)

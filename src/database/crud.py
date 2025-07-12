@@ -309,6 +309,41 @@ class TGEProjectCRUD:
             .group_by(TGEProject.project_category)
         )
         return dict(result.all())
+    
+    @staticmethod
+    async def count_all(session: AsyncSession) -> int:
+        """统计所有项目数量"""
+        result = await session.execute(
+            select(func.count(TGEProject.id))
+        )
+        return result.scalar()
+    
+    @staticmethod
+    async def count_processed(session: AsyncSession) -> int:
+        """统计已处理项目数量"""
+        result = await session.execute(
+            select(func.count(TGEProject.id))
+            .where(TGEProject.is_processed == True)
+        )
+        return result.scalar()
+    
+    @staticmethod
+    async def count_unprocessed(session: AsyncSession) -> int:
+        """统计未处理项目数量"""
+        result = await session.execute(
+            select(func.count(TGEProject.id))
+            .where(TGEProject.is_processed == False)
+        )
+        return result.scalar()
+    
+    @staticmethod
+    async def count_recent(session: AsyncSession, since: datetime) -> int:
+        """统计指定时间以来的项目数量"""
+        result = await session.execute(
+            select(func.count(TGEProject.id))
+            .where(TGEProject.created_at >= since)
+        )
+        return result.scalar()
 
 
 class CrawlerLogCRUD:

@@ -50,8 +50,8 @@ echo "🗄️  检查数据库连接..."
 python3 -c "
 import os
 import sys
-sys.path.append('src')
-from config.settings import settings
+sys.path.insert(0, '.')
+from src.config.settings import settings
 print(f'数据库配置: {settings.mysql_host}:{settings.mysql_port}/{settings.mysql_db}')
 print('数据库连接配置正常')
 " || {
@@ -64,8 +64,8 @@ echo "🏗️  初始化数据库..."
 python3 -c "
 import asyncio
 import sys
-sys.path.append('src')
-from database.database import init_database
+sys.path.insert(0, '.')
+from src.database.database import init_database
 asyncio.run(init_database())
 print('数据库初始化完成')
 " || echo "⚠️  数据库初始化失败，请确保数据库服务正在运行"
@@ -83,4 +83,4 @@ echo "📍 健康检查: http://localhost:8000/api/v1/health"
 echo ""
 echo "按 Ctrl+C 停止服务"
 
-python3 -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
