@@ -117,7 +117,56 @@ class XHSPlatform(AbstractPlatform):
         Returns:
             爬取到的内容列表
         """
+        original_cwd = os.getcwd()
+        original_keywords = None
+        config_file_path = None
+        
         try:
+            # 切换到mediacrawler目录
+            os.chdir(self.mediacrawler_path)
+            
+            # 首先修改配置文件（在任何MediaCrawler导入之前）
+            try:
+                import sys
+                
+                # 清除所有MediaCrawler相关的模块缓存
+                modules_to_remove = []
+                for module_name in sys.modules.keys():
+                    if any(keyword in module_name for keyword in ['config', 'media_platform', 'mediacrawler']):
+                        modules_to_remove.append(module_name)
+                        
+                for module_name in modules_to_remove:
+                    del sys.modules[module_name]
+                
+                # 读取并修改配置文件
+                config_file_path = os.path.join(self.mediacrawler_path, "config", "base_config.py")
+                
+                with open(config_file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # 查找并替换KEYWORDS行
+                import re
+                pattern = r'KEYWORDS\s*=\s*"([^"]*)"'
+                match = re.search(pattern, content)
+                
+                if match:
+                    original_keywords = match.group(1)
+                    new_keywords = ",".join(keywords)
+                    new_content = re.sub(pattern, f'KEYWORDS = "{new_keywords}"', content)
+                    
+                    # 写入临时修改
+                    with open(config_file_path, 'w', encoding='utf-8') as f:
+                        f.write(new_content)
+                    
+                    self.logger.info("Updated MediaCrawler keywords before import", 
+                                   original=original_keywords, 
+                                   new=new_keywords)
+                else:
+                    self.logger.warning("Could not find KEYWORDS pattern in config file")
+                    
+            except Exception as e:
+                self.logger.warning("Failed to update MediaCrawler keywords", error=str(e))
+            
             # 验证关键词
             validated_keywords = await self.validate_keywords(keywords)
             
@@ -156,6 +205,27 @@ class XHSPlatform(AbstractPlatform):
         except Exception as e:
             self.logger.error("XHS crawl failed", error=str(e))
             raise PlatformError("xhs", f"Crawl failed: {str(e)}")
+        finally:
+            # 恢复原工作目录
+            os.chdir(original_cwd)
+            
+            # 恢复原始关键词配置
+            try:
+                if original_keywords is not None and config_file_path and os.path.exists(config_file_path):
+                    with open(config_file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # 恢复原始关键词
+                    import re
+                    pattern = r'KEYWORDS\s*=\s*"([^"]*)"'
+                    restored_content = re.sub(pattern, f'KEYWORDS = "{original_keywords}"', content)
+                    
+                    with open(config_file_path, 'w', encoding='utf-8') as f:
+                        f.write(restored_content)
+                    
+                    self.logger.info("Restored original MediaCrawler keywords", keywords=original_keywords)
+            except Exception as e:
+                self.logger.warning("Failed to restore original keywords", error=str(e))
     
     async def _search_notes_with_client(
         self, 

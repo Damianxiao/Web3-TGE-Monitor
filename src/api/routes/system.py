@@ -33,7 +33,7 @@ START_TIME = time.time()
            response_model=ApiResponse[HealthCheckResponse],
            summary="系统健康检查",
            description="检查系统各组件的健康状态")
-async def health_check():
+async def health_check(db: AsyncSession = Depends(get_db)):
     """
     系统健康检查
     
@@ -58,10 +58,9 @@ async def health_check():
         
         # 检查数据库连接
         try:
-            async with get_db_session() as session:
-                # 简单的数据库查询测试
-                await TGEProjectCRUD.count_all(session)
-                health_status["database"] = "healthy"
+            # 简单的数据库查询测试
+            await TGEProjectCRUD.count_all(db)
+            health_status["database"] = "healthy"
         except Exception as e:
             logger.error("Database health check failed", error=str(e))
             health_status["database"] = "unhealthy"

@@ -16,7 +16,7 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 
 from src.config.settings import settings
-from src.api.routes import projects, crawler, ai_processing, system
+from src.api.routes import projects, crawler, ai_processing, system, tge_search
 from src.database.database import init_database
 from src.api.middleware.logging import LoggingMiddleware
 from src.api.middleware.error_handler import ErrorHandlerMiddleware
@@ -271,6 +271,12 @@ app.include_router(
     system.router,
     prefix="/api/v1/system",
     tags=["System"]
+)
+
+app.include_router(
+    tge_search.router,
+    prefix="/api/v1/tge",
+    tags=["TGE Search"]
 )
 
 
