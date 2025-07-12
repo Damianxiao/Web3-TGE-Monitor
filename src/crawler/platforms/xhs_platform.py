@@ -1,11 +1,11 @@
 """
-小红书平台适配器
-将MediaCrawler的XHS数据转换为统一格式
+小红书平台适配器 - 重构版
+直接使用MediaCrawler的Python类，而不是subprocess调用
 """
 import json
 import sys
 import os
-import subprocess
+import asyncio
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
@@ -13,18 +13,56 @@ import structlog
 
 from ..base_platform import AbstractPlatform, PlatformError, PlatformUnavailableError
 from ..models import RawContent, Platform, ContentType
+from ...config.mediacrawler_config import MediaCrawlerConfig
 
 logger = structlog.get_logger()
 
 
 class XHSPlatform(AbstractPlatform):
-    """小红书平台实现"""
+    """小红书平台实现 - 共享库版本"""
     
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__(config)
-        self.mediacrawler_path = config.get('mediacrawler_path', '../MediaCrawler')
-        self.python_path = self._find_python_path()
-    
+        
+        # 如果配置中明确指定了无效路径，应该抛出错误而不是fallback
+        if config and 'mediacrawler_path' in config:
+            specified_path = config['mediacrawler_path']
+            if specified_path and not self._validate_mediacrawler_path(specified_path):
+                raise PlatformError("xhs", f"指定的MediaCrawler路径无效: {specified_path}")
+        
+        # 使用新的配置管理器
+        from ...config.settings import settings
+        self.mc_config = MediaCrawlerConfig(settings)
+        self.mediacrawler_path = self.mc_config.mediacrawler_path
+        self._xhs_client = None
+        
+        # 确保MediaCrawler在Python路径中
+        self._ensure_mediacrawler_in_path()
+        
+    def _validate_mediacrawler_path(self, path) -> bool:
+        """验证MediaCrawler路径是否有效"""
+        try:
+            path = Path(path)
+            if not (path.exists() and path.is_dir()):
+                return False
+            
+            # 检查必需的核心文件
+            required_files = [
+                path / "media_platform" / "xhs" / "core.py",
+                path / "media_platform" / "xhs" / "client.py",
+                path / "base" / "base_crawler.py"
+            ]
+            
+            return all(f.exists() and f.is_file() for f in required_files)
+        except Exception:
+            return False
+        
+    def _ensure_mediacrawler_in_path(self):
+        """确保MediaCrawler路径在Python路径中"""
+        if self.mediacrawler_path not in sys.path:
+            sys.path.insert(0, self.mediacrawler_path)
+            self.logger.info("Added MediaCrawler to Python path", path=self.mediacrawler_path)
+        
     def get_platform_name(self) -> Platform:
         """获取平台名称"""
         return Platform.XHS
@@ -32,24 +70,39 @@ class XHSPlatform(AbstractPlatform):
     async def is_available(self) -> bool:
         """检查平台是否可用"""
         try:
-            # 检查MediaCrawler路径是否存在
-            mc_path = Path(self.mediacrawler_path)
-            if not mc_path.exists():
-                self.logger.error("MediaCrawler path not found", path=str(mc_path))
+            # 使用配置管理器验证安装
+            if not self.mc_config.validate_installation():
+                self.logger.error("MediaCrawler installation validation failed")
                 return False
             
-            # 检查main.py是否存在
-            main_py = mc_path / "main.py"
-            if not main_py.exists():
-                self.logger.error("MediaCrawler main.py not found", path=str(main_py))
-                return False
+            # 尝试导入MediaCrawler的XHS模块
+            from media_platform.xhs import client as xhs_client
+            from media_platform.xhs import core as xhs_core
             
-            self.logger.info("XHS platform available")
+            self.logger.info("XHS platform modules imported successfully")
             return True
             
         except Exception as e:
-            self.logger.error("XHS platform availability check failed", error=str(e))
+            self.logger.error("XHS platform not available", error=str(e))
             return False
+    
+    async def _get_xhs_client(self):
+        """获取XHS爬虫实例（延迟初始化）"""
+        if self._xhs_client is None:
+            try:
+                # 导入MediaCrawler的XHS核心爬虫
+                from media_platform.xhs.core import XiaoHongShuCrawler
+                
+                # 创建爬虫实例
+                self._xhs_client = XiaoHongShuCrawler()
+                
+                self.logger.info("XHS crawler initialized")
+                
+            except Exception as e:
+                self.logger.error("Failed to initialize XHS crawler", error=str(e))
+                raise PlatformError("xhs", f"Failed to initialize XHS crawler: {str(e)}")
+        
+        return self._xhs_client
     
     async def crawl(
         self, 
@@ -58,7 +111,7 @@ class XHSPlatform(AbstractPlatform):
         **kwargs
     ) -> List[RawContent]:
         """
-        爬取小红书内容
+        爬取小红书内容 - 新的共享库实现
         
         Args:
             keywords: 搜索关键词列表
@@ -68,39 +121,57 @@ class XHSPlatform(AbstractPlatform):
         Returns:
             爬取到的内容列表
         """
-        # 验证关键词
-        validated_keywords = await self.validate_keywords(keywords)
-        
-        # 执行爬取
-        raw_data = await self._execute_mediacrawler(validated_keywords, max_count)
-        
-        # 转换数据格式
-        raw_contents = []
-        for item in raw_data:
-            try:
-                content = await self.transform_to_raw_content(item)
-                raw_contents.append(content)
-            except Exception as e:
-                self.logger.warning("Failed to transform content", 
-                                  content_id=item.get('note_id', 'unknown'),
-                                  error=str(e))
-        
-        # 过滤内容
-        filtered_contents = await self.filter_content(raw_contents)
-        
-        self.logger.info("XHS crawl completed",
-                        keywords=validated_keywords,
-                        raw_count=len(raw_data),
-                        transformed_count=len(raw_contents),
-                        filtered_count=len(filtered_contents))
-        
-        return filtered_contents
+        try:
+            # 验证关键词
+            validated_keywords = await self.validate_keywords(keywords)
+            
+            self.logger.info("Starting XHS crawl with shared library",
+                           keywords=validated_keywords,
+                           max_count=max_count)
+            
+            # 获取XHS爬虫
+            crawler = await self._get_xhs_client()
+            
+            # 执行搜索爬取
+            raw_data = await self._search_notes_with_client(crawler, validated_keywords, max_count)
+            
+            # 转换数据格式
+            raw_contents = []
+            for item in raw_data:
+                try:
+                    content = await self.transform_to_raw_content(item)
+                    raw_contents.append(content)
+                except Exception as e:
+                    self.logger.warning("Failed to transform content", 
+                                      content_id=item.get('note_id', 'unknown'),
+                                      error=str(e))
+            
+            # 过滤内容
+            filtered_contents = await self.filter_content(raw_contents)
+            
+            self.logger.info("XHS crawl completed",
+                            keywords=validated_keywords,
+                            raw_count=len(raw_data),
+                            transformed_count=len(raw_contents),
+                            filtered_count=len(filtered_contents))
+            
+            return filtered_contents
+            
+        except Exception as e:
+            self.logger.error("XHS crawl failed", error=str(e))
+            raise PlatformError("xhs", f"Crawl failed: {str(e)}")
     
-    async def _execute_mediacrawler(self, keywords: List[str], max_count: int) -> List[Dict[str, Any]]:
+    async def _search_notes_with_client(
+        self, 
+        crawler, 
+        keywords: List[str], 
+        max_count: int
+    ) -> List[Dict[str, Any]]:
         """
-        执行MediaCrawler爬取
+        使用XHS爬虫搜索笔记
         
         Args:
+            crawler: XHS爬虫实例
             keywords: 关键词列表
             max_count: 最大数量
             
@@ -108,81 +179,97 @@ class XHSPlatform(AbstractPlatform):
             原始数据列表
         """
         try:
-            # 构建命令
-            keywords_str = ",".join(keywords)
+            # 首先需要启动爬虫（创建浏览器实例等）
+            await crawler.start()
             
-            cmd = [
-                self.python_path, "main.py",
-                "--platform", "xhs",
-                "--lt", "cookie",  # 使用cookie登录
-                "--type", "search",
-                "--keywords", keywords_str,
-                "--save_data_option", "json"
-            ]
+            all_notes = []
             
-            self.logger.info("Executing MediaCrawler", 
-                           cmd_preview=f"{self.python_path} main.py --platform xhs ...",
-                           keywords=keywords)
+            # 获取初始化后的客户端
+            client = crawler.xhs_client
             
-            # 执行命令
-            result = subprocess.run(
-                cmd,
-                cwd=self.mediacrawler_path,
-                capture_output=True,
-                text=True,
-                timeout=300,  # 5分钟超时
-                env=dict(os.environ, PYTHONPATH=self.mediacrawler_path)
-            )
-            
-            if result.returncode != 0:
-                error_msg = f"MediaCrawler execution failed: {result.stderr}"
-                self.logger.error("MediaCrawler failed", 
-                                error=error_msg,
-                                stdout=result.stdout)
-                raise PlatformError("xhs", error_msg)
-            
-            # 读取生成的数据文件
-            return await self._read_crawl_results()
-            
-        except subprocess.TimeoutExpired:
-            raise PlatformError("xhs", "MediaCrawler execution timeout")
-        except Exception as e:
-            raise PlatformError("xhs", f"Failed to execute MediaCrawler: {str(e)}")
-    
-    async def _read_crawl_results(self) -> List[Dict[str, Any]]:
-        """读取爬取结果文件"""
-        try:
-            # 查找最新的数据文件
-            data_dir = Path(self.mediacrawler_path) / "data" / "xhs" / "json"
-            
-            if not data_dir.exists():
-                self.logger.warning("XHS data directory not found", path=str(data_dir))
-                return []
-            
-            # 找到最新的content文件
-            content_files = list(data_dir.glob("search_contents_*.json"))
-            if not content_files:
-                self.logger.warning("No content files found", search_path=str(data_dir))
-                return []
-            
-            # 选择最新的文件
-            latest_file = max(content_files, key=lambda f: f.stat().st_mtime)
-            
-            self.logger.info("Reading crawl results", file_path=str(latest_file))
-            
-            # 读取JSON数据
-            with open(latest_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            if isinstance(data, list):
-                return data
-            else:
-                self.logger.warning("Unexpected data format", data_type=type(data))
-                return []
+            for keyword in keywords:
+                self.logger.info("Searching for keyword", keyword=keyword)
                 
+                try:
+                    # 直接调用客户端的搜索API
+                    from media_platform.xhs.field import SearchSortType
+                    from media_platform.xhs.help import get_search_id
+                    
+                    # 搜索笔记
+                    notes_res = await client.get_note_by_keyword(
+                        keyword=keyword,
+                        search_id=get_search_id(),
+                        page=1,
+                        page_size=min(20, max_count),  # XHS每页最多20条
+                        sort=SearchSortType.GENERAL
+                    )
+                    
+                    if not notes_res or not notes_res.get("items"):
+                        self.logger.warning("No notes found for keyword", keyword=keyword)
+                        continue
+                    
+                    # 获取笔记详情
+                    for post_item in notes_res.get("items", []):
+                        if post_item.get("model_type") in ("rec_query", "hot_query"):
+                            continue
+                            
+                        try:
+                            note_detail = await client.get_note_by_id(
+                                note_id=post_item.get("id"),
+                                xsec_source=post_item.get("xsec_source"),
+                                xsec_token=post_item.get("xsec_token")
+                            )
+                            
+                            if note_detail:
+                                # 添加来源关键词
+                                note_detail['source_keyword'] = keyword
+                                all_notes.append(note_detail)
+                                
+                                self.logger.debug("Found note", 
+                                                note_id=post_item.get("id"),
+                                                keyword=keyword)
+                                
+                        except Exception as e:
+                            self.logger.warning("Failed to get note detail", 
+                                              note_id=post_item.get("id"),
+                                              error=str(e))
+                            continue
+                    
+                    self.logger.info("Found notes for keyword", 
+                                   keyword=keyword, 
+                                   count=len([n for n in all_notes if n.get('source_keyword') == keyword]))
+                
+                except Exception as e:
+                    self.logger.error("Failed to search keyword", 
+                                    keyword=keyword, 
+                                    error=str(e))
+                    continue
+                
+                # 控制总数
+                if len(all_notes) >= max_count:
+                    break
+            
+            # 截取到指定数量
+            result = all_notes[:max_count]
+            
+            self.logger.info("Search completed", 
+                           total_found=len(all_notes), 
+                           returned=len(result))
+            
+            return result
+            
         except Exception as e:
-            self.logger.error("Failed to read crawl results", error=str(e))
-            return []
+            self.logger.error("Search notes failed", error=str(e))
+            raise PlatformError("xhs", f"Search failed: {str(e)}")
+        finally:
+            # 确保关闭浏览器和清理资源
+            try:
+                if hasattr(crawler, 'close'):
+                    await crawler.close()
+                # 重置客户端实例以避免状态残留
+                self._xhs_client = None
+            except Exception as e:
+                self.logger.warning("Failed to close crawler", error=str(e))
     
     async def transform_to_raw_content(self, xhs_data: Dict[str, Any]) -> RawContent:
         """
@@ -306,20 +393,3 @@ class XHSPlatform(AbstractPlatform):
             return 0
         except Exception:
             return 0
-    
-    def _find_python_path(self) -> str:
-        """查找Python路径"""
-        # 首先尝试使用UV（如果MediaCrawler使用UV）
-        mc_path = Path(self.mediacrawler_path)
-        uv_venv = mc_path / ".venv" / "bin" / "python"
-        
-        if uv_venv.exists():
-            return str(uv_venv)
-        
-        # 然后尝试普通虚拟环境
-        venv_python = mc_path / "venv" / "bin" / "python"
-        if venv_python.exists():
-            return str(venv_python)
-        
-        # 最后使用系统Python
-        return sys.executable

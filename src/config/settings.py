@@ -38,6 +38,27 @@ class Settings(BaseSettings):
     
     # MediaCrawler配置
     mediacrawler_path: str = "../MediaCrawler"
+    mediacrawler_enable_proxy: bool = False
+    mediacrawler_headless: bool = True
+    mediacrawler_save_data: bool = True
+    
+    @field_validator('mediacrawler_path')
+    @classmethod
+    def validate_mediacrawler_path(cls, v):
+        """验证MediaCrawler路径"""
+        if not v:
+            return v
+        
+        from pathlib import Path
+        path = Path(v)
+        
+        # 如果是相对路径，转换为绝对路径
+        if not path.is_absolute():
+            # 相对于项目根目录
+            project_root = Path(__file__).parent.parent.parent
+            path = (project_root / v).resolve()
+        
+        return str(path)
     
     # 爬虫配置
     crawler_max_pages: int = 5
