@@ -78,7 +78,11 @@ class XHSPlatform(AbstractPlatform):
     async def _get_xhs_client(self):
         """获取XHS爬虫实例（延迟初始化）"""
         if self._xhs_client is None:
+            original_cwd = os.getcwd()
             try:
+                # 切换到mediacrawler目录以确保相对路径正确
+                os.chdir(self.mediacrawler_path)
+                
                 # 导入MediaCrawler的XHS核心爬虫
                 from media_platform.xhs.core import XiaoHongShuCrawler
                 
@@ -90,6 +94,9 @@ class XHSPlatform(AbstractPlatform):
             except Exception as e:
                 self.logger.error("Failed to initialize XHS crawler", error=str(e))
                 raise PlatformError("xhs", f"Failed to initialize XHS crawler: {str(e)}")
+            finally:
+                # 恢复原工作目录
+                os.chdir(original_cwd)
         
         return self._xhs_client
     
@@ -167,7 +174,11 @@ class XHSPlatform(AbstractPlatform):
         Returns:
             原始数据列表
         """
+        original_cwd = os.getcwd()
         try:
+            # 切换到mediacrawler目录以确保相对路径正确
+            os.chdir(self.mediacrawler_path)
+            
             # 首先需要启动爬虫（创建浏览器实例等）
             await crawler.start()
             
@@ -251,6 +262,9 @@ class XHSPlatform(AbstractPlatform):
             self.logger.error("Search notes failed", error=str(e))
             raise PlatformError("xhs", f"Search failed: {str(e)}")
         finally:
+            # 恢复原工作目录
+            os.chdir(original_cwd)
+            
             # 确保关闭浏览器和清理资源
             try:
                 if hasattr(crawler, 'close'):

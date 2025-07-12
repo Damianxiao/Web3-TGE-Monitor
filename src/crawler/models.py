@@ -122,6 +122,8 @@ class CrawlTask(BaseModel):
     keywords: List[str]
     max_count: int = 50
     created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
     status: str = "pending"  # pending, running, completed, failed
     error_message: Optional[str] = None
     result_count: int = 0

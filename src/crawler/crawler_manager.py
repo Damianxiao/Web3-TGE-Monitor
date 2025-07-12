@@ -242,6 +242,16 @@ class CrawlerManager:
         # 限制返回数量
         return tasks[:limit]
     
+    async def cancel_task(self, task_id: str) -> bool:
+        """取消任务"""
+        if task_id in self.active_tasks:
+            task = self.active_tasks[task_id]
+            if task.status not in ["completed", "failed", "cancelled"]:
+                task.status = "cancelled"
+                logger.info("Task cancelled", task_id=task_id)
+                return True
+        return False
+    
     async def cleanup_old_tasks(self, hours: int = 24):
         """清理旧任务"""
         cutoff_time = datetime.utcnow().timestamp() - (hours * 3600)
