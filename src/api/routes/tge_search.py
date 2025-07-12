@@ -174,16 +174,16 @@ async def search_tge_projects(
                             ai_result = {"summary": ai_result}
                     
                     # 保存到数据库
+                    from ...utils.deduplication import generate_content_hash
+                    
                     tge_project = TGEProject(
-                        title=content.title,
-                        content=content.content,
+                        project_name=content.title or f"TGE项目_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+                        content_hash=generate_content_hash(content.content),
                         raw_content=content.raw_content,
                         source_platform=content.platform.value,
                         source_url=content.source_url,
-                        author_name=content.author_name,
-                        publish_time=content.publish_time,
-                        crawl_time=content.crawl_time,
-                        keywords=request.keywords,
+                        source_user_id=content.author_id,
+                        source_username=content.author_name,
                         
                         # AI分析结果
                         ai_summary=ai_result.get("summary"),
@@ -197,7 +197,9 @@ async def search_tge_projects(
                         token_symbol=ai_result.get("token_symbol"),
                         tge_date=ai_result.get("tge_date"),
                         
-                        processed_at=datetime.utcnow()
+                        # 状态字段
+                        is_processed=True,
+                        is_valid=True
                     )
                     
                     # 保存到数据库

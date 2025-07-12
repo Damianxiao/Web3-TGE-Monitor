@@ -17,18 +17,17 @@ class TGEProjectCRUD:
     """TGE项目数据操作"""
     
     @staticmethod
-    async def create(session: AsyncSession, project_data: Dict[str, Any]) -> Optional[TGEProject]:
+    async def create(session: AsyncSession, project: TGEProject) -> Optional[TGEProject]:
         """创建新的TGE项目记录"""
         try:
-            project = TGEProject(**project_data)
             session.add(project)
             await session.commit()
             await session.refresh(project)
-            logger.info("TGE project created", project_id=project.id, project_name=project.project_name)
+            logger.info("TGE project created", project_id=project.id, title=project.title)
             return project
         except IntegrityError:
             await session.rollback()
-            logger.warning("Duplicate content hash detected", content_hash=project_data.get('content_hash'))
+            logger.warning("Duplicate content hash detected", content_hash=project.content_hash)
             return None
         except Exception as e:
             await session.rollback()
@@ -143,6 +142,20 @@ class TGEProjectCRUD:
             "sentiment_distribution": sentiment_stats,
             "processing_rate": round(processed_count / total_count * 100, 2) if total_count > 0 else 0
         }
+    
+    @staticmethod
+    async def get_recent_processed(session: AsyncSession, since: datetime, limit: int = 20) -> List[TGEProject]:
+        """获取最近处理的TGE项目"""
+        query = select(TGEProject).where(
+            and_(
+                TGEProject.is_processed == True,
+                TGEProject.updated_at >= since,
+                TGEProject.is_valid == True
+            )
+        ).order_by(TGEProject.updated_at.desc()).limit(limit)
+        
+        result = await session.execute(query)
+        return list(result.scalars().all())
     
     @staticmethod
     async def count_all(session: AsyncSession) -> int:

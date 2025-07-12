@@ -249,84 +249,117 @@ class XHSPlatform(AbstractPlatform):
             # 切换到mediacrawler目录以确保相对路径正确
             os.chdir(self.mediacrawler_path)
             
-            # 首先需要启动爬虫（创建浏览器实例等）
-            await crawler.start()
+            # 手动初始化浏览器和客户端，避免执行完整的MediaCrawler工作流
+            from playwright.async_api import async_playwright
+            import config
             
-            all_notes = []
-            
-            # 获取初始化后的客户端
-            client = crawler.xhs_client
-            
-            for keyword in keywords:
-                self.logger.info("Searching for keyword", keyword=keyword)
-                
-                try:
-                    # 直接调用客户端的搜索API
-                    from media_platform.xhs.field import SearchSortType
-                    from media_platform.xhs.help import get_search_id
-                    
-                    # 搜索笔记
-                    notes_res = await client.get_note_by_keyword(
-                        keyword=keyword,
-                        search_id=get_search_id(),
-                        page=1,
-                        page_size=min(20, max_count),  # XHS每页最多20条
-                        sort=SearchSortType.GENERAL
+            async with async_playwright() as playwright:
+                # 根据配置选择启动模式
+                if config.ENABLE_CDP_MODE:
+                    browser_context = await crawler.launch_browser_with_cdp(
+                        playwright, None, crawler.user_agent,
+                        headless=config.CDP_HEADLESS
                     )
+                else:
+                    chromium = playwright.chromium
+                    browser_context = await crawler.launch_browser(
+                        chromium, None, crawler.user_agent, headless=config.HEADLESS
+                    )
+                
+                # 设置浏览器上下文
+                crawler.browser_context = browser_context
+                
+                # 添加必要的脚本和Cookie
+                await browser_context.add_init_script(path="libs/stealth.min.js")
+                await browser_context.add_cookies([{
+                    "name": "webId",
+                    "value": "xxx123",
+                    "domain": ".xiaohongshu.com",
+                    "path": "/",
+                }])
+                
+                # 创建页面并导航
+                context_page = await browser_context.new_page()
+                await context_page.goto(crawler.index_url)
+                crawler.context_page = context_page
+                
+                # 创建XHS客户端
+                client = await crawler.create_xhs_client(None)  # None因为ENABLE_IP_PROXY=False
+                crawler.xhs_client = client
+                
+                all_notes = []
+                
+                for keyword in keywords:
+                    self.logger.info("Searching for keyword", keyword=keyword)
                     
-                    if not notes_res or not notes_res.get("items"):
-                        self.logger.warning("No notes found for keyword", keyword=keyword)
+                    try:
+                        # 直接调用客户端的搜索API
+                        from media_platform.xhs.field import SearchSortType
+                        from media_platform.xhs.help import get_search_id
+                        
+                        # 搜索笔记
+                        notes_res = await client.get_note_by_keyword(
+                            keyword=keyword,
+                            search_id=get_search_id(),
+                            page=1,
+                            page_size=min(20, max_count),  # XHS每页最多20条
+                            sort=SearchSortType.GENERAL
+                        )
+                        
+                        if not notes_res or not notes_res.get("items"):
+                            self.logger.warning("No notes found for keyword", keyword=keyword)
+                            continue
+                        
+                        # 获取笔记详情
+                        for post_item in notes_res.get("items", []):
+                            if post_item.get("model_type") in ("rec_query", "hot_query"):
+                                continue
+                                
+                            try:
+                                note_detail = await client.get_note_by_id(
+                                    note_id=post_item.get("id"),
+                                    xsec_source=post_item.get("xsec_source"),
+                                    xsec_token=post_item.get("xsec_token")
+                                )
+                                
+                                if note_detail:
+                                    # 添加来源关键词
+                                    note_detail['source_keyword'] = keyword
+                                    all_notes.append(note_detail)
+                                    
+                                    self.logger.debug("Found note", 
+                                                    note_id=post_item.get("id"),
+                                                    keyword=keyword)
+                                    
+                            except Exception as e:
+                                self.logger.warning("Failed to get note detail", 
+                                                  note_id=post_item.get("id"),
+                                                  error=str(e))
+                                continue
+                        
+                        self.logger.info("Found notes for keyword", 
+                                       keyword=keyword, 
+                                       count=len([n for n in all_notes if n.get('source_keyword') == keyword]))
+                    
+                    except Exception as e:
+                        self.logger.error("Failed to search keyword", 
+                                        keyword=keyword, 
+                                        error=str(e))
                         continue
                     
-                    # 获取笔记详情
-                    for post_item in notes_res.get("items", []):
-                        if post_item.get("model_type") in ("rec_query", "hot_query"):
-                            continue
-                            
-                        try:
-                            note_detail = await client.get_note_by_id(
-                                note_id=post_item.get("id"),
-                                xsec_source=post_item.get("xsec_source"),
-                                xsec_token=post_item.get("xsec_token")
-                            )
-                            
-                            if note_detail:
-                                # 添加来源关键词
-                                note_detail['source_keyword'] = keyword
-                                all_notes.append(note_detail)
-                                
-                                self.logger.debug("Found note", 
-                                                note_id=post_item.get("id"),
-                                                keyword=keyword)
-                                
-                        except Exception as e:
-                            self.logger.warning("Failed to get note detail", 
-                                              note_id=post_item.get("id"),
-                                              error=str(e))
-                            continue
-                    
-                    self.logger.info("Found notes for keyword", 
-                                   keyword=keyword, 
-                                   count=len([n for n in all_notes if n.get('source_keyword') == keyword]))
+                    # 控制总数
+                    if len(all_notes) >= max_count:
+                        break
                 
-                except Exception as e:
-                    self.logger.error("Failed to search keyword", 
-                                    keyword=keyword, 
-                                    error=str(e))
-                    continue
+                # 截取到指定数量
+                result = all_notes[:max_count]
                 
-                # 控制总数
-                if len(all_notes) >= max_count:
-                    break
-            
-            # 截取到指定数量
-            result = all_notes[:max_count]
-            
-            self.logger.info("Search completed", 
-                           total_found=len(all_notes), 
-                           returned=len(result))
-            
-            return result
+                self.logger.info("Search completed", 
+                               total_found=len(all_notes), 
+                               returned=len(result))
+                
+                # 浏览器会在async with结束时自动关闭
+                return result
             
         except Exception as e:
             self.logger.error("Search notes failed", error=str(e))
