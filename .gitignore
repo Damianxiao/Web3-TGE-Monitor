@@ -72,6 +72,13 @@ data/cache/
 
 # MediaCrawler generated files
 *_user_data_dir/
+browser_data/
+mediacrawler/browser_data/
+mediacrawler/data/
+**/browser_data/
+**/data/xhs/
+*.crdownload
+*.part
 
 # Temporary files
 *.tmp
@@ -84,19 +91,24 @@ data/cache/
 # Local config override
 .env.local
 config.local.py
+
 # Claude Code Kit - Generated Files
 claude-code-kit/
 .claude/
 .mcp/
 .mcp.json
 mcp-*.json
-*.tmp
 database.sqlite
-*.sqlite
-*.log
 *.cache
 *.backup
 *.bak
-.env.local
 CLAUDE.md
 rules/
+debug_tools
+tests
+
+# Debug and test files
+debug_*.py
+test_*.py
+check_*.py
+simple_*.py

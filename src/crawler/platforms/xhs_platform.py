@@ -342,9 +342,47 @@ class XHSPlatform(AbstractPlatform):
                                        count=len([n for n in all_notes if n.get('source_keyword') == keyword]))
                     
                     except Exception as e:
-                        self.logger.error("Failed to search keyword", 
+                        import traceback
+                        
+                        # 深入分析异常类型和原因
+                        error_analysis = {
+                            "error_type": type(e).__name__,
+                            "error_message": str(e),
+                            "keyword": keyword,
+                            "traceback": traceback.format_exc()
+                        }
+                        
+                        # 如果是RetryError，尝试获取内部异常
+                        if hasattr(e, 'last_attempt') and hasattr(e.last_attempt, 'exception'):
+                            inner_exception = e.last_attempt.exception()
+                            error_analysis.update({
+                                "inner_error_type": type(inner_exception).__name__,
+                                "inner_error_message": str(inner_exception),
+                                "retry_attempts": getattr(e.last_attempt, 'attempt_number', 'unknown')
+                            })
+                            
+                            # 如果内部异常是DataFetchError，尝试获取更多信息
+                            if hasattr(inner_exception, '__dict__'):
+                                error_analysis["inner_error_details"] = str(inner_exception.__dict__)
+                        
+                        # 如果异常包含response信息，尝试提取
+                        if hasattr(e, 'response'):
+                            try:
+                                error_analysis["response_status"] = getattr(e.response, 'status_code', 'unknown')
+                                error_analysis["response_text"] = getattr(e.response, 'text', 'unknown')[:500]  # 限制长度
+                            except:
+                                pass
+                        
+                        self.logger.error("Failed to search keyword with detailed analysis", 
                                         keyword=keyword, 
-                                        error=str(e))
+                                        error=str(e),
+                                        error_analysis=error_analysis)
+                        
+                        # 将详细错误信息添加到结果中，以便上层处理
+                        if not hasattr(self, '_detailed_errors'):
+                            self._detailed_errors = []
+                        self._detailed_errors.append(error_analysis)
+                        
                         continue
                     
                     # 控制总数
@@ -358,12 +396,50 @@ class XHSPlatform(AbstractPlatform):
                                total_found=len(all_notes), 
                                returned=len(result))
                 
+                # 如果没有找到任何结果，但有详细错误信息，则抛出异常显示错误详情
+                if len(result) == 0 and hasattr(self, '_detailed_errors') and self._detailed_errors:
+                    detailed_error_info = {
+                        "message": "所有关键词搜索都失败了",
+                        "keyword_errors": self._detailed_errors,
+                        "total_keywords": len(keywords),
+                        "total_errors": len(self._detailed_errors)
+                    }
+                    
+                    platform_error = PlatformError("xhs", "所有关键词搜索都失败，查看详细错误信息")
+                    platform_error.detailed_errors = detailed_error_info
+                    raise platform_error
+                
                 # 浏览器会在async with结束时自动关闭
                 return result
             
         except Exception as e:
-            self.logger.error("Search notes failed", error=str(e))
-            raise PlatformError("xhs", f"Search failed: {str(e)}")
+            import traceback
+            
+            # 收集所有错误信息
+            all_errors = getattr(self, '_detailed_errors', [])
+            
+            # 添加主要异常信息
+            main_error = {
+                "main_error_type": type(e).__name__,
+                "main_error_message": str(e),
+                "main_traceback": traceback.format_exc(),
+                "detailed_keyword_errors": all_errors
+            }
+            
+            self.logger.error("Search notes failed with comprehensive error analysis", 
+                            error=str(e),
+                            comprehensive_error=main_error)
+            
+            # 创建增强的PlatformError，包含所有错误详情
+            error_msg = f"Search failed: {str(e)}"
+            if all_errors:
+                error_msg += f" (包含{len(all_errors)}个关键词级别的详细错误)"
+            
+            # 将详细错误信息附加到异常中
+            platform_error = PlatformError("xhs", error_msg)
+            platform_error.detailed_errors = main_error
+            
+            raise platform_error
         finally:
             # 恢复原工作目录
             os.chdir(original_cwd)

@@ -13,7 +13,7 @@
 PLATFORM = "xhs"
 KEYWORDS = "编程副业,编程兼职"  # 关键词搜索配置，以英文逗号分隔
 LOGIN_TYPE = "cookie"  # qrcode or phone or cookie
-COOKIES = "abRequestId=7ce35458-ff4a-5dfa-9687-f64a12e40a73; xsecappid=xhs-pc-web; a1=196bddd115240llo9uo9tt2s91lf61wk4sowjoe8250000102656; webId=b02f2dce588cff96203af0661213a419; gid=yjKDfffqy24SyjKDfffyyMld2J4811lj7lj9lYJ9JMjy1E28iKyETV888y8JK2K8JYJ2DKf2; webBuild=4.72.0; acw_tc=0a4a79fa17522359685367481e5a34fa59633a4bd137c105f16b2de67ccd03; websectiga=29098a4cf41f76ee3f8db19051aaa60c0fc7c5e305572fec762da32d457d76ae; sec_poison_id=aa10f188-1e4b-4fd4-b300-53cbf08d3e46; loadts=1752235984795; web_session=040069b0f8d84212f6d2b4b7453a4b9587d8d9; unread={%22ub%22:%226870fd3a00000000240085b9%22%2C%22ue%22:%226870fae3000000002201c08c%22%2C%22uc%22:32}"
+COOKIES = "abRequestId=7ce35458-ff4a-5dfa-9687-f64a12e40a73; xsecappid=xhs-pc-web; a1=196bddd115240llo9uo9tt2s91lf61wk4sowjoe8250000102656; webId=b02f2dce588cff96203af0661213a419; gid=yjKDfffqy24SyjKDfffyyMld2J4811lj7lj9lYJ9JMjy1E28iKyETV888y8JK2K8JYJ2DKf2; webBuild=4.72.0; web_session=040069b0f8d84212f6d2b4b7453a4b9587d8d9; acw_tc=0a00d09617523297812223182e94865cb03bbc41fa696bcd9e946670a079b1; websectiga=2845367ec3848418062e761c09db7caf0e8b79d132ccdd1a4f8e64a11d0cac0d; sec_poison_id=89cfa9e6-f3f8-4b9c-91fb-2ec400a339fd; loadts=1752329811028; unread={%22ub%22:%22686fb8c70000000013010e64%22%2C%22ue%22:%2268722a8d000000000d026ca6%22%2C%22uc%22:29}"
 # 具体值参见media_platform.xxx.field下的枚举值，暂时只支持小红书
 SORT_TYPE = "popularity_descending"
 # 具体值参见media_platform.xxx.field下的枚举值，暂时只支持抖音
@@ -208,13 +208,10 @@ CUSTOM_WORDS = {
 }
 
 # 停用(禁用)词文件路径
-import os
-_current_dir = os.path.dirname(os.path.abspath(__file__))
-_mediacrawler_root = os.path.dirname(_current_dir)
-STOP_WORDS_FILE = os.path.join(_mediacrawler_root, "docs", "hit_stopwords.txt")
+STOP_WORDS_FILE = "./docs/hit_stopwords.txt"
 
 # 中文字体文件路径
-FONT_PATH = os.path.join(_mediacrawler_root, "docs", "STZHONGS.TTF")
+FONT_PATH = "./docs/STZHONGS.TTF"
 
 # 爬取开始的天数，仅支持 bilibili 关键字搜索，YYYY-MM-DD 格式，若为 None 则表示不设置时间范围，按照默认关键字最多返回 1000 条视频的结果处理
 START_DAY = "2024-01-01"

@@ -139,6 +139,24 @@ async def search_tge_projects(
                     "traceback": traceback.format_exc(),
                     "platform": platform_name
                 }
+                
+                # 如果是PlatformError并且包含详细错误信息，提取出来
+                if hasattr(e, 'detailed_errors') and e.detailed_errors:
+                    error_info["platform_detailed_errors"] = e.detailed_errors
+                
+                # 如果是RetryError，尝试获取内部异常详情
+                if hasattr(e, 'last_attempt') and hasattr(e.last_attempt, 'exception'):
+                    inner_exception = e.last_attempt.exception()
+                    error_info.update({
+                        "inner_error_type": type(inner_exception).__name__,
+                        "inner_error_message": str(inner_exception),
+                        "retry_attempts": getattr(e.last_attempt, 'attempt_number', 'unknown')
+                    })
+                    
+                    # 如果内部异常也有详细错误信息
+                    if hasattr(inner_exception, 'detailed_errors'):
+                        error_info["inner_detailed_errors"] = inner_exception.detailed_errors
+                
                 detailed_errors[platform_name] = error_info
                 
                 logger.error(f"Crawl failed for platform {platform_name}", 
@@ -272,11 +290,18 @@ async def search_tge_projects(
         if detailed_errors:
             message = f"执行完成，但有{len(detailed_errors)}个平台出现错误。分析了{len(analysis_results)}个TGE项目"
             if not analysis_results:
-                # 如果没有成功分析任何内容，返回错误状态但仍包含详细错误信息
-                return error_response(
-                    message="所有平台都出现错误，未获取到任何内容",
-                    status_code=500,
-                    details=detailed_errors
+                # 如果没有成功分析任何内容，返回带详细错误信息的成功响应
+                response_data = TGESearchResponse(
+                    analysis_results=[],
+                    search_summary=search_summary,
+                    execution_time=execution_time,
+                    timestamp=datetime.utcnow(),
+                    error_details=detailed_errors
+                )
+                
+                return success_response(
+                    data=response_data,
+                    message="所有平台都出现错误，未获取到任何内容，详见error_details字段"
                 )
         else:
             message = f"成功分析{len(analysis_results)}个TGE项目"
