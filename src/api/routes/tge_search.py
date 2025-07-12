@@ -143,7 +143,7 @@ async def search_tge_projects(
                 # 如果是PlatformError并且包含详细错误信息，提取出来
                 if hasattr(e, 'detailed_errors') and e.detailed_errors:
                     error_info["platform_detailed_errors"] = e.detailed_errors
-                
+
                 # 如果是RetryError，尝试获取内部异常详情
                 if hasattr(e, 'last_attempt') and hasattr(e.last_attempt, 'exception'):
                     inner_exception = e.last_attempt.exception()
@@ -152,10 +152,18 @@ async def search_tge_projects(
                         "inner_error_message": str(inner_exception),
                         "retry_attempts": getattr(e.last_attempt, 'attempt_number', 'unknown')
                     })
-                    
+
                     # 如果内部异常也有详细错误信息
                     if hasattr(inner_exception, 'detailed_errors'):
                         error_info["inner_detailed_errors"] = inner_exception.detailed_errors
+
+                # 为所有异常添加详细错误信息到platform_detailed_errors
+                if "platform_detailed_errors" not in error_info:
+                    error_info["platform_detailed_errors"] = {
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                        "error_context": "Platform crawling failed"
+                    }
                 
                 detailed_errors[platform_name] = error_info
                 

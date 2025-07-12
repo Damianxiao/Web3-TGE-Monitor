@@ -96,8 +96,10 @@ class XiaoHongShuClient(AbstractApiClient):
         # return response.text
         return_response = kwargs.pop("return_response", False)
 
-        # 兼容httpx 0.28.1+版本，使用proxy替代proxies参数
+        # 兼容httpx 0.28.1+版本，代理参数处理
         proxy_param = self.proxies
+        client_kwargs = {}
+        
         if proxy_param and isinstance(proxy_param, dict):
             # 如果是字典格式，转换为字符串格式（httpx 0.28.1要求）
             if 'http' in proxy_param:
@@ -105,7 +107,11 @@ class XiaoHongShuClient(AbstractApiClient):
             elif 'https' in proxy_param:
                 proxy_param = proxy_param['https']
         
-        async with httpx.AsyncClient(proxy=proxy_param) as client:
+        # httpx 0.28.1+ 使用proxies参数而不是proxy
+        if proxy_param:
+            client_kwargs['proxies'] = proxy_param
+        
+        async with httpx.AsyncClient(**client_kwargs) as client:
             response = await client.request(method, url, timeout=self.timeout, **kwargs)
 
         if response.status_code == 471 or response.status_code == 461:

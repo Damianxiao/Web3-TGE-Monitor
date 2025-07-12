@@ -204,7 +204,14 @@ class XHSPlatform(AbstractPlatform):
             
         except Exception as e:
             self.logger.error("XHS crawl failed", error=str(e))
-            raise PlatformError("xhs", f"Crawl failed: {str(e)}")
+            
+            # 如果原始异常包含详细错误信息，保留它们
+            if hasattr(e, 'detailed_errors'):
+                platform_error = PlatformError("xhs", f"Crawl failed: {str(e)}")
+                platform_error.detailed_errors = e.detailed_errors
+                raise platform_error
+            else:
+                raise PlatformError("xhs", f"Crawl failed: {str(e)}")
         finally:
             # 恢复原工作目录
             os.chdir(original_cwd)
