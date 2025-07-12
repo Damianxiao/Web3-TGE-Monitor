@@ -71,3 +71,13 @@ class Settings(BaseSettings):
 
 # 全局设置实例
 settings = Settings()
+
+# AI配置字典（用于AI模块）
+ai_config = {
+    'api_url': f"https://{settings.ai_api_base_url}/v1/chat/completions",
+    'api_key': settings.ai_api_key,
+    'model': settings.ai_model,
+    'max_tokens': settings.ai_max_tokens,
+    'temperature': settings.ai_temperature,
+    'timeout': 30
+}
