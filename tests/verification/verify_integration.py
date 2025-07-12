@@ -5,12 +5,17 @@ MediaCrawler整合验证脚本
 """
 import asyncio
 import sys
+import os
 from pathlib import Path
 
 # 添加项目根目录到Python路径
-project_root = Path(__file__).parent
+project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
+
+# 切换到项目根目录以确保mediacrawler模块能找到相对路径文件
+original_cwd = os.getcwd()
+os.chdir(str(project_root))
 
 async def verify_integration():
     """验证MediaCrawler整合"""
@@ -132,6 +137,9 @@ async def main():
         print("现在您可以直接使用Web3-TGE-Monitor，无需独立的MediaCrawler项目。")
     else:
         print("\n❌ 整合验证失败，需要检查问题。")
+    
+    # 恢复原工作目录
+    os.chdir(original_cwd)
 
 if __name__ == "__main__":
     asyncio.run(main())

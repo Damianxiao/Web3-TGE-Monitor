@@ -8,9 +8,13 @@ import os
 from pathlib import Path
 
 # 添加项目根目录到Python路径
-project_root = Path(__file__).parent
+project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
+
+# 切换到项目根目录以确保mediacrawler模块能找到相对路径文件
+original_cwd = os.getcwd()
+os.chdir(str(project_root))
 
 # 添加mediacrawler目录到Python路径
 mediacrawler_path = project_root / "mediacrawler"
@@ -90,3 +94,6 @@ if __name__ == "__main__":
         print("🎉 所有模块导入成功！mediacrawler整合完成。")
     else:
         print("⚠️  存在导入问题，需要进一步调试。")
+    
+    # 恢复原工作目录
+    os.chdir(original_cwd)
