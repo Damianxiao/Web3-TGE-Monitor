@@ -58,6 +58,7 @@ class TGESearchResponse(BaseModel):
     search_summary: Dict[str, Any] = Field(..., description="搜索统计摘要")
     execution_time: float = Field(..., description="执行时间（秒）")
     timestamp: datetime = Field(..., description="响应时间戳")
+    error_details: Optional[Dict[str, Any]] = Field(None, description="详细错误信息（调试用）")
 
 
 @router.post("/search",
@@ -88,6 +89,7 @@ async def search_tge_projects(
         # 1. 执行多平台爬取
         all_crawled_content = []
         crawl_stats = {}
+        detailed_errors = {}  # 收集详细错误信息
         
         for platform_name in request.platforms:
             try:
@@ -130,15 +132,26 @@ async def search_tge_projects(
                            count=len(crawled_content))
                 
             except Exception as e:
-                logger.error(f"Crawl failed for platform {platform_name}", error=str(e))
+                import traceback
+                error_info = {
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "traceback": traceback.format_exc(),
+                    "platform": platform_name
+                }
+                detailed_errors[platform_name] = error_info
+                
+                logger.error(f"Crawl failed for platform {platform_name}", 
+                           error=str(e), error_type=type(e).__name__)
                 crawl_stats[platform_name] = {"status": "error", "count": 0, "error": str(e)}
                 continue
         
-        if not all_crawled_content:
-            raise HTTPException(
-                status_code=404,
-                detail="未找到相关内容，请尝试其他关键词"
-            )
+        # 移除内容检查，让底层异常直接传播
+        # if not all_crawled_content:
+        #     raise HTTPException(
+        #         status_code=404,
+        #         detail="未找到相关内容，请尝试其他关键词"
+        #     )
         
         # 2. 初始化AI客户端
         ai_config = {
@@ -251,16 +264,31 @@ async def search_tge_projects(
             analysis_results=analysis_results,
             search_summary=search_summary,
             execution_time=execution_time,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.utcnow(),
+            error_details=detailed_errors if detailed_errors else None
         )
+        
+        # 根据是否有错误调整返回消息
+        if detailed_errors:
+            message = f"执行完成，但有{len(detailed_errors)}个平台出现错误。分析了{len(analysis_results)}个TGE项目"
+            if not analysis_results:
+                # 如果没有成功分析任何内容，返回错误状态但仍包含详细错误信息
+                return error_response(
+                    message="所有平台都出现错误，未获取到任何内容",
+                    status_code=500,
+                    details=detailed_errors
+                )
+        else:
+            message = f"成功分析{len(analysis_results)}个TGE项目"
         
         logger.info("TGE search analysis completed",
                    total_results=len(analysis_results),
-                   execution_time=execution_time)
+                   execution_time=execution_time,
+                   errors=len(detailed_errors))
         
         return success_response(
             data=response_data,
-            message=f"成功分析{len(analysis_results)}个TGE项目"
+            message=message
         )
         
     except HTTPException:
