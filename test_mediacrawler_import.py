@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """
-MediaCrawler模块导入测试
-验证是否能成功导入MediaCrawler的关键组件
+内部mediacrawler模块导入测试
+验证项目内部mediacrawler模块是否能正确导入
 """
 import sys
 import os
+from pathlib import Path
 
-# 添加MediaCrawler路径到Python路径
-mediacrawler_path = '/home/damian/MediaCrawler'
-if mediacrawler_path not in sys.path:
-    sys.path.insert(0, mediacrawler_path)
+# 添加项目根目录到Python路径
+project_root = Path(__file__).parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+# 添加mediacrawler目录到Python路径
+mediacrawler_path = project_root / "mediacrawler"
+if str(mediacrawler_path) not in sys.path:
+    sys.path.insert(0, str(mediacrawler_path))
 
 def test_imports():
     """测试关键模块的导入"""
@@ -63,8 +69,9 @@ def test_imports():
     return results
 
 if __name__ == "__main__":
-    print("开始测试MediaCrawler模块导入...")
-    print(f"MediaCrawler路径: {mediacrawler_path}")
+    print("开始测试内部mediacrawler模块导入...")
+    print(f"项目根目录: {project_root}")
+    print(f"Mediacrawler路径: {mediacrawler_path}")
     print("=" * 50)
     
     results = test_imports()
@@ -80,6 +87,6 @@ if __name__ == "__main__":
     print(f"\n成功率: {success_count}/{total_count} ({success_count/total_count*100:.1f}%)")
     
     if success_count == total_count:
-        print("🎉 所有模块导入成功！可以进行下一步。")
+        print("🎉 所有模块导入成功！mediacrawler整合完成。")
     else:
         print("⚠️  存在导入问题，需要进一步调试。")

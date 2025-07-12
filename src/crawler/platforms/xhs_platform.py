@@ -1,6 +1,6 @@
 """
-小红书平台适配器 - 重构版
-直接使用MediaCrawler的Python类，而不是subprocess调用
+小红书平台适配器 - 整合版
+直接使用项目内部的mediacrawler模块
 """
 import json
 import sys
@@ -13,55 +13,29 @@ import structlog
 
 from ..base_platform import AbstractPlatform, PlatformError, PlatformUnavailableError
 from ..models import RawContent, Platform, ContentType
-from ...config.mediacrawler_config import MediaCrawlerConfig
 
 logger = structlog.get_logger()
 
 
 class XHSPlatform(AbstractPlatform):
-    """小红书平台实现 - 共享库版本"""
+    """小红书平台实现 - 整合版"""
     
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__(config)
         
-        # 如果配置中明确指定了无效路径，应该抛出错误而不是fallback
-        if config and 'mediacrawler_path' in config:
-            specified_path = config['mediacrawler_path']
-            if specified_path and not self._validate_mediacrawler_path(specified_path):
-                raise PlatformError("xhs", f"指定的MediaCrawler路径无效: {specified_path}")
-        
-        # 使用新的配置管理器
-        from ...config.settings import settings
-        self.mc_config = MediaCrawlerConfig(settings)
-        self.mediacrawler_path = self.mc_config.mediacrawler_path
+        # 设置mediacrawler路径为项目内部路径
+        project_root = Path(__file__).parent.parent.parent.parent
+        self.mediacrawler_path = str(project_root / "mediacrawler")
         self._xhs_client = None
         
-        # 确保MediaCrawler在Python路径中
+        # 确保mediacrawler在Python路径中
         self._ensure_mediacrawler_in_path()
         
-    def _validate_mediacrawler_path(self, path) -> bool:
-        """验证MediaCrawler路径是否有效"""
-        try:
-            path = Path(path)
-            if not (path.exists() and path.is_dir()):
-                return False
-            
-            # 检查必需的核心文件
-            required_files = [
-                path / "media_platform" / "xhs" / "core.py",
-                path / "media_platform" / "xhs" / "client.py",
-                path / "base" / "base_crawler.py"
-            ]
-            
-            return all(f.exists() and f.is_file() for f in required_files)
-        except Exception:
-            return False
-        
     def _ensure_mediacrawler_in_path(self):
-        """确保MediaCrawler路径在Python路径中"""
+        """确保mediacrawler路径在Python路径中"""
         if self.mediacrawler_path not in sys.path:
             sys.path.insert(0, self.mediacrawler_path)
-            self.logger.info("Added MediaCrawler to Python path", path=self.mediacrawler_path)
+            self.logger.info("Added mediacrawler to Python path", path=self.mediacrawler_path)
         
     def get_platform_name(self) -> Platform:
         """获取平台名称"""
@@ -69,13 +43,25 @@ class XHSPlatform(AbstractPlatform):
     
     async def is_available(self) -> bool:
         """检查平台是否可用"""
+        original_cwd = os.getcwd()
         try:
-            # 使用配置管理器验证安装
-            if not self.mc_config.validate_installation():
-                self.logger.error("MediaCrawler installation validation failed")
-                return False
+            # 验证mediacrawler目录结构
+            mediacrawler_path = Path(self.mediacrawler_path)
+            required_files = [
+                mediacrawler_path / "media_platform" / "xhs" / "core.py",
+                mediacrawler_path / "media_platform" / "xhs" / "client.py",
+                mediacrawler_path / "base" / "base_crawler.py"
+            ]
             
-            # 尝试导入MediaCrawler的XHS模块
+            for required_file in required_files:
+                if not required_file.exists():
+                    self.logger.error("Required file not found", file=str(required_file))
+                    return False
+            
+            # 切换到mediacrawler目录以确保相对路径正确
+            os.chdir(self.mediacrawler_path)
+            
+            # 尝试导入mediacrawler的XHS模块
             from media_platform.xhs import client as xhs_client
             from media_platform.xhs import core as xhs_core
             
@@ -85,6 +71,9 @@ class XHSPlatform(AbstractPlatform):
         except Exception as e:
             self.logger.error("XHS platform not available", error=str(e))
             return False
+        finally:
+            # 恢复原工作目录
+            os.chdir(original_cwd)
     
     async def _get_xhs_client(self):
         """获取XHS爬虫实例（延迟初始化）"""
