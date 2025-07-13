@@ -33,6 +33,8 @@ class WeiboPlatform(AbstractPlatform):
         self.max_pages = int(os.getenv("WEIBO_MAX_PAGES", "10"))
         self.rate_limit = int(os.getenv("WEIBO_RATE_LIMIT", "60"))
         self.cookie = os.getenv("WEIBO_COOKIE", "")
+        self.login_method = os.getenv("WEIBO_LOGIN_METHOD", "cookie")
+        self.headless = os.getenv("WEIBO_HEADLESS", "true").lower() == "true"
         
         # MediaCrawler集成
         self._crawler = None
@@ -252,14 +254,27 @@ class WeiboPlatform(AbstractPlatform):
     
     def _map_search_type(self, search_type_str: str):
         """映射搜索类型字符串到枚举"""
-        type_mapping = {
-            "综合": self.SearchType.DEFAULT,
-            "实时": self.SearchType.REAL_TIME,
-            "热门": self.SearchType.POPULAR,
-            "视频": self.SearchType.VIDEO
-        }
+        # 尝试导入SearchType
+        modules = self._import_mediacrawler_modules()
         
-        return type_mapping.get(search_type_str, self.SearchType.DEFAULT)
+        if modules and 'SearchType' in modules:
+            SearchType = modules['SearchType']
+            type_mapping = {
+                "综合": SearchType.DEFAULT,
+                "实时": SearchType.REAL_TIME,
+                "热门": SearchType.POPULAR,
+                "视频": SearchType.VIDEO
+            }
+            return type_mapping.get(search_type_str, SearchType.DEFAULT)
+        else:
+            # 如果MediaCrawler不可用，使用简化的字符串映射
+            type_mapping = {
+                "综合": "1",
+                "实时": "61", 
+                "热门": "60",
+                "视频": "64"
+            }
+            return type_mapping.get(search_type_str, "1")
     
     async def _delay_between_requests(self):
         """请求间延迟"""
@@ -464,29 +479,80 @@ class WeiboPlatform(AbstractPlatform):
             return True
     
     async def _get_weibo_client(self):
-        """获取微博客户端实例"""
+        """获取微博客户端实例 - 客户端工厂方法"""
         if self._crawler is None:
-            # 尝试导入MediaCrawler模块
-            modules = self._import_mediacrawler_modules()
+            self.logger.info(f"Creating Weibo client with login method: {self.login_method}")
             
-            if modules:
-                # 如果MediaCrawler可用，使用完整客户端
-                self.logger.info("Using MediaCrawler-based client")
-                # 这里将来可以实现BrowserWeiboClient
-                # 暂时还是使用SimplifiedWeiboClient
+            # 优先尝试Cookie登录
+            if self.login_method == "cookie" and self.cookie:
+                self.logger.info("Using SimplifiedWeiboClient with cookie authentication")
                 self._crawler = SimplifiedWeiboClient(
                     cookie=self.cookie,
                     user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15",
                     logger=self.logger
                 )
+            elif self.login_method == "qrcode" or not self.cookie:
+                # 当明确指定二维码模式，或Cookie未配置时，使用二维码登录
+                try:
+                    from crawler.clients.browser_weibo_client import BrowserWeiboClient
+                    
+                    if not self.cookie:
+                        self.logger.info("Cookie not configured, falling back to QR code login")
+                    else:
+                        self.logger.info("QR code login explicitly requested")
+                        
+                    self.logger.info("Initializing BrowserWeiboClient for QR code login")
+                    self._crawler = BrowserWeiboClient(
+                        mediacrawler_path=self._mediacrawler_path,
+                        headless=self.headless,
+                        logger=self.logger
+                    )
+                    
+                    # 初始化并登录
+                    await self._crawler.initialize()
+                    await self._crawler.login_with_qrcode()
+                    
+                    self.logger.info("BrowserWeiboClient initialized and logged in successfully")
+                    
+                except ImportError as e:
+                    self.logger.error(f"Failed to import BrowserWeiboClient: {e}")
+                    if self.cookie:
+                        self.logger.info("Falling back to SimplifiedWeiboClient with available cookie")
+                        self._crawler = SimplifiedWeiboClient(
+                            cookie=self.cookie,
+                            user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15",
+                            logger=self.logger
+                        )
+                    else:
+                        raise PlatformError(
+                            platform=self.platform_name.value,
+                            message="No authentication method available: Cookie not configured and QR code login failed",
+                            error_code="AUTH_UNAVAILABLE"
+                        )
+                except Exception as e:
+                    self.logger.error(f"Failed to initialize BrowserWeiboClient: {e}")
+                    if self.cookie:
+                        self.logger.info("Falling back to SimplifiedWeiboClient with available cookie")
+                        self._crawler = SimplifiedWeiboClient(
+                            cookie=self.cookie,
+                            user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15",
+                            logger=self.logger
+                        )
+                    else:
+                        raise PlatformError(
+                            platform=self.platform_name.value,
+                            message=f"Authentication failed: {str(e)}",
+                            error_code="AUTH_FAILED"
+                        )
             else:
-                # 如果MediaCrawler不可用，使用简化客户端
-                self.logger.info("Using simplified HTTP client")
+                # 默认降级到Cookie模式
+                self.logger.info("Using SimplifiedWeiboClient as default")
                 self._crawler = SimplifiedWeiboClient(
-                    cookie=self.cookie,
+                    cookie=self.cookie or "",
                     user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15",
                     logger=self.logger
                 )
+                
         return self._crawler
 
 
