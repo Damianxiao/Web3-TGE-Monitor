@@ -256,6 +256,9 @@ class XHSPlatform(AbstractPlatform):
             # 切换到mediacrawler目录以确保相对路径正确
             os.chdir(self.mediacrawler_path)
             
+            # 检查登录状态并在需要时执行登录
+            await self._ensure_login_status(crawler)
+            
             # 手动初始化浏览器和客户端，避免执行完整的MediaCrawler工作流
             from playwright.async_api import async_playwright
             import config
@@ -350,6 +353,16 @@ class XHSPlatform(AbstractPlatform):
                     
                     except Exception as e:
                         import traceback
+                        
+                        # 检查是否是权限错误，如果是则触发登录
+                        if "权限访问" in str(e) or "DataFetchError" in str(e):
+                            self.logger.warning("Permission error detected, attempting login", error=str(e))
+                            try:
+                                await self._perform_login(crawler)
+                                # 登录后重试
+                                continue
+                            except Exception as login_error:
+                                self.logger.error("Login failed", error=str(login_error))
                         
                         # 深入分析异常类型和原因
                         error_analysis = {
@@ -459,6 +472,67 @@ class XHSPlatform(AbstractPlatform):
                 self._xhs_client = None
             except Exception as e:
                 self.logger.warning("Failed to close crawler", error=str(e))
+    
+    async def _ensure_login_status(self, crawler):
+        """确保登录状态有效"""
+        try:
+            import config
+            self.logger.info("Checking login configuration", login_type=config.LOGIN_TYPE)
+            
+            if config.LOGIN_TYPE == "qrcode":
+                # 如果配置为扫码登录，总是执行登录流程
+                self.logger.info("QR code login configured, initiating login process")
+                await self._perform_login(crawler)
+            elif config.LOGIN_TYPE == "cookie":
+                # Cookie登录模式，检查cookie是否有效
+                # 这里可以添加cookie有效性检查逻辑
+                self.logger.info("Cookie login configured")
+            
+        except Exception as e:
+            self.logger.warning("Login status check failed", error=str(e))
+    
+    async def _perform_login(self, crawler):
+        """执行登录流程"""
+        try:
+            import config
+            from media_platform.xhs.login import XiaoHongShuLogin
+            from playwright.async_api import async_playwright
+            
+            self.logger.info("Starting login process", login_type=config.LOGIN_TYPE)
+            
+            async with async_playwright() as playwright:
+                # 根据配置选择启动模式
+                if config.ENABLE_CDP_MODE:
+                    browser_context = await crawler.launch_browser_with_cdp(
+                        playwright, None, crawler.user_agent,
+                        headless=config.CDP_HEADLESS
+                    )
+                else:
+                    chromium = playwright.chromium
+                    browser_context = await crawler.launch_browser(
+                        chromium, None, crawler.user_agent, headless=config.HEADLESS
+                    )
+                
+                # 创建页面并导航到小红书
+                context_page = await browser_context.new_page()
+                await context_page.goto("https://www.xiaohongshu.com")
+                
+                # 创建登录实例
+                login_instance = XiaoHongShuLogin(
+                    login_type=config.LOGIN_TYPE,
+                    browser_context=browser_context,
+                    context_page=context_page,
+                    cookie_str=config.COOKIES if config.LOGIN_TYPE == "cookie" else ""
+                )
+                
+                # 执行登录
+                await login_instance.begin()
+                
+                self.logger.info("Login process completed successfully")
+                
+        except Exception as e:
+            self.logger.error("Login process failed", error=str(e))
+            raise
     
     async def transform_to_raw_content(self, xhs_data: Dict[str, Any]) -> RawContent:
         """

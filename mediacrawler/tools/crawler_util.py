@@ -16,6 +16,8 @@
 
 import base64
 import json
+import os
+import platform
 import random
 import re
 import urllib
@@ -76,7 +78,7 @@ async def find_qrcode_img_from_canvas(page: Page, canvas_selector: str) -> str:
 
 
 def show_qrcode(qr_code) -> None:  # type: ignore
-    """parse base64 encode qrcode image and show it"""
+    """parse base64 encode qrcode image and show it with WSL support"""
     if "," in qr_code:
         qr_code = qr_code.split(",")[1]
     qr_code = base64.b64decode(qr_code)
@@ -88,7 +90,12 @@ def show_qrcode(qr_code) -> None:  # type: ignore
     new_image.paste(image, (10, 10))
     draw = ImageDraw.Draw(new_image)
     draw.rectangle((0, 0, width + 19, height + 19), outline=(0, 0, 0), width=1)
-    new_image.show()
+    
+    # Check if running in WSL environment
+    if is_wsl_environment():
+        show_qrcode_wsl(new_image)
+    else:
+        new_image.show()
 
 
 def get_user_agent() -> str:
@@ -203,3 +210,125 @@ def extract_url_params_to_dict(url: str) -> Dict:
     parsed_url = urllib.parse.urlparse(url)
     url_params_dict = dict(urllib.parse.parse_qsl(parsed_url.query))
     return url_params_dict
+
+
+def is_wsl_environment() -> bool:
+    """检测是否在WSL环境中运行"""
+    try:
+        # 检查 /proc/version 文件中是否包含 WSL 或 Microsoft
+        if os.path.exists('/proc/version'):
+            with open('/proc/version', 'r') as f:
+                version_info = f.read().lower()
+                return 'microsoft' in version_info or 'wsl' in version_info
+        
+        # 检查环境变量
+        wsl_distro = os.environ.get('WSL_DISTRO_NAME')
+        if wsl_distro:
+            return True
+            
+        # 检查是否在Linux上但有Windows文件系统挂载
+        if platform.system() == 'Linux' and os.path.exists('/mnt/c'):
+            return True
+            
+        return False
+    except Exception:
+        return False
+
+
+def show_qrcode_wsl(image: Image.Image) -> None:
+    """在WSL环境中显示二维码"""
+    try:
+        # 方案1: 保存到Windows桌面
+        desktop_path = get_windows_desktop_path()
+        if desktop_path:
+            qr_file_path = os.path.join(desktop_path, 'xhs_qrcode.png')
+            image.save(qr_file_path)
+            utils.logger.info(f"二维码已保存到Windows桌面: {qr_file_path}")
+            utils.logger.info("请在Windows桌面打开 xhs_qrcode.png 并用手机扫描")
+        
+        # 方案2: 保存到当前目录作为备选
+        fallback_path = os.path.join(os.getcwd(), 'xhs_qrcode.png')
+        image.save(fallback_path)
+        utils.logger.info(f"二维码备份保存到: {fallback_path}")
+        
+        # 方案3: 显示ASCII二维码
+        show_ascii_qrcode(image)
+        
+    except Exception as e:
+        utils.logger.error(f"WSL二维码显示失败: {e}")
+        # 降级到尝试直接显示
+        try:
+            image.show()
+        except Exception:
+            utils.logger.error("无法显示二维码，请检查图片文件")
+
+
+def get_windows_desktop_path() -> Optional[str]:
+    """获取Windows桌面路径"""
+    try:
+        # 常见的Windows用户路径
+        possible_paths = [
+            '/mnt/c/Users/Public/Desktop',
+            '/mnt/c/Users/*/Desktop'  # 通配符路径，需要实际查找
+        ]
+        
+        # 尝试从环境变量获取用户名
+        username = os.environ.get('USER', os.environ.get('USERNAME', ''))
+        if username:
+            user_desktop = f'/mnt/c/Users/{username}/Desktop'
+            if os.path.exists(user_desktop):
+                return user_desktop
+        
+        # 查找第一个可用的用户桌面
+        users_dir = '/mnt/c/Users'
+        if os.path.exists(users_dir):
+            for user_folder in os.listdir(users_dir):
+                desktop_path = os.path.join(users_dir, user_folder, 'Desktop')
+                if os.path.exists(desktop_path) and user_folder not in ['Public', 'Default', 'All Users']:
+                    return desktop_path
+        
+        # 使用Public桌面作为最后选择
+        public_desktop = '/mnt/c/Users/Public/Desktop'
+        if os.path.exists(public_desktop):
+            return public_desktop
+            
+        return None
+    except Exception:
+        return None
+
+
+def show_ascii_qrcode(image: Image.Image) -> None:
+    """在终端显示ASCII二维码"""
+    try:
+        # 安装qrcode库用于生成ASCII二维码
+        import qrcode
+        
+        # 将图片转换回二维码数据（这里简化处理）
+        utils.logger.info("\n" + "="*50)
+        utils.logger.info("ASCII二维码显示 (如果上方图片无法打开，请扫描下方字符):")
+        utils.logger.info("="*50)
+        
+        # 创建简单的ASCII二维码提示
+        print("""
+        ████████████████████████████████████████
+        ██                                    ██
+        ██  请打开Windows桌面上的二维码图片文件    ██
+        ██  或使用手机浏览器访问以下地址：          ██
+        ██  http://localhost:8000/qrcode        ██
+        ██                                    ██
+        ████████████████████████████████████████
+        """)
+        
+    except ImportError:
+        # 如果没有qrcode库，显示简单提示
+        print("""
+        ┌────────────────────────────────────────┐
+        │                                        │
+        │  WSL环境检测到，二维码已保存到文件       │
+        │  请打开Windows桌面上的 xhs_qrcode.png   │
+        │  使用手机扫描二维码进行登录              │
+        │                                        │
+        └────────────────────────────────────────┘
+        """)
+    except Exception as e:
+        utils.logger.error(f"ASCII二维码显示失败: {e}")

@@ -11,9 +11,12 @@
 
 # 基础配置
 PLATFORM = "xhs"
-KEYWORDS = "编程副业,编程兼职"  # 关键词搜索配置，以英文逗号分隔
-LOGIN_TYPE = "cookie"  # qrcode or phone or cookie
-COOKIES = "abRequestId=7ce35458-ff4a-5dfa-9687-f64a12e40a73; xsecappid=xhs-pc-web; a1=196bddd115240llo9uo9tt2s91lf61wk4sowjoe8250000102656; webId=b02f2dce588cff96203af0661213a419; gid=yjKDfffqy24SyjKDfffyyMld2J4811lj7lj9lYJ9JMjy1E28iKyETV888y8JK2K8JYJ2DKf2; webBuild=4.72.0; web_session=040069b0f8d84212f6d2b4b7453a4b9587d8d9; acw_tc=0a00d09617523297812223182e94865cb03bbc41fa696bcd9e946670a079b1; websectiga=2845367ec3848418062e761c09db7caf0e8b79d132ccdd1a4f8e64a11d0cac0d; sec_poison_id=89cfa9e6-f3f8-4b9c-91fb-2ec400a339fd; loadts=1752329811028; unread={%22ub%22:%22686fb8c70000000013010e64%22%2C%22ue%22:%2268722a8d000000000d026ca6%22%2C%22uc%22:29}"
+KEYWORDS = "TGE,代币发行,空投,IDO,新币上线,DeFi,Web3项目"  # Web3相关关键词
+LOGIN_TYPE = "qrcode"  # qrcode or phone or cookie
+
+# Cookie配置 - 支持环境变量
+import os
+COOKIES = os.getenv("XHS_COOKIES", "abRequestId=7ce35458-ff4a-5dfa-9687-f64a12e40a73; a1=196bddd115240llo9uo9tt2s91lf61wk4sowjoe8250000102656; webId=b02f2dce588cff96203af0661213a419; gid=yjKDfffqy24SyjKDfffyyMld2J4811lj7lj9lYJ9JMjy1E28iKyETV888y8JK2K8JYJ2DKf2; webBuild=4.72.0; acw_tc=0a0bb25517523730600868147e34db3c2edb381434680817bb586738259e17; websectiga=3633fe24d49c7dd0eb923edc8205740f10fdb18b25d424d2a2322c6196d2a4ad; sec_poison_id=eb0b82c5-f270-44e0-ae74-b5424c2c562a; xsecappid=xhs-pc-web; loadts=1752374368427; web_session=030037af136cef77cf3d285a0b2f4ab30d7c1e; unread={%22ub%22:%226852c0b9000000002400ecfe%22%2C%22ue%22:%22686e0d770000000010024328%22%2C%22uc%22:17}")
 # 具体值参见media_platform.xxx.field下的枚举值，暂时只支持小红书
 SORT_TYPE = "popularity_descending"
 # 具体值参见media_platform.xxx.field下的枚举值，暂时只支持抖音
@@ -42,7 +45,7 @@ IP_PROXY_PROVIDER_NAME = "kuaidaili"
 # 设置False会打开一个浏览器
 # 小红书如果一直扫码登录不通过，打开浏览器手动过一下滑动验证码
 # 抖音如果一直提示失败，打开浏览器看下是否扫码登录之后出现了手机号验证，如果出现了手动过一下再试。
-HEADLESS = True
+HEADLESS = False  # 设置为False以便扫码登录
 
 # 是否保存登录状态
 SAVE_LOGIN_STATE = True
