@@ -25,6 +25,7 @@ share/python-wheels/
 
 # Virtual environments
 .env
+.env.backup.*
 .venv
 env/
 venv/
@@ -70,11 +71,12 @@ coverage.xml
 .cache/
 data/cache/
 
+# MediaCrawler - entire directory ignored
+mediacrawler/
+
 # MediaCrawler generated files
 *_user_data_dir/
 browser_data/
-mediacrawler/browser_data/
-mediacrawler/data/
 **/browser_data/
 **/data/xhs/
 *.crdownload
@@ -112,3 +114,5 @@ debug_*.py
 test_*.py
 check_*.py
 simple_*.py
+.env.backup.20250713_104157
+docs
