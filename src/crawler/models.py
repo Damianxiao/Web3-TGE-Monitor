@@ -14,6 +14,15 @@ class ContentType(str, Enum):
     VIDEO = "video"
     IMAGE = "image"
     MIXED = "mixed"
+    
+    # 知乎特有内容类型
+    ANSWER = "answer"      # 回答
+    ARTICLE = "article"    # 文章
+    QUESTION = "question"  # 问题
+    PIN = "pin"           # 想法
+    
+    # 其他平台通用类型
+    POST = "post"         # 通用帖子类型
 
 
 class Platform(str, Enum):

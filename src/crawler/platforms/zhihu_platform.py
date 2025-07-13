@@ -413,16 +413,18 @@ class ZhihuPlatform(AbstractPlatform):
                 content_type=content_type,
                 title=title,
                 content=content_text,
+                raw_content=zhihu_data.get('content', ''),  # 保留原始HTML内容
                 author_name=author_name,
                 author_id=author_id,
                 publish_time=publish_time,
+                crawl_time=datetime.now(),  # 当前爬取时间
                 like_count=like_count,
                 comment_count=comment_count,
                 share_count=share_count,
                 source_url=source_url,
                 hashtags=hashtags,
                 image_urls=[],  # 知乎图片需要特殊处理，暂时留空
-                metadata={
+                platform_metadata={
                     'zhihu_type': zhihu_data.get('type'),
                     'professional_score': self._calculate_professional_score(zhihu_data),
                     'author_headline': author.get('headline', ''),
@@ -477,7 +479,7 @@ class ZhihuPlatform(AbstractPlatform):
                 return True
             
             # 专业度评估
-            if content.metadata and content.metadata.get('professional_score', 0) < 0.3:
+            if content.platform_metadata and content.platform_metadata.get('professional_score', 0) < 0.3:
                 return True
                 
         elif isinstance(content, dict):
