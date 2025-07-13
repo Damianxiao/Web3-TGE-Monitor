@@ -107,11 +107,9 @@ database.sqlite
 CLAUDE.md
 rules/
 debug_tools
-tests
 
-# Debug and test files
+# Debug files (excluding proper test files)
 debug_*.py
-test_*.py
 check_*.py
 simple_*.py
 .env.backup.20250713_104157

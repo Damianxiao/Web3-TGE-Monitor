@@ -8,10 +8,10 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 import structlog
 
-from .models import Platform, CrawlTask, CrawlResult, RawContent
-from .platform_factory import PlatformFactory
-from ..utils.deduplication import deduplication_service
-from ..config.keywords import get_all_keywords
+from crawler.models import Platform, CrawlTask, CrawlResult, RawContent
+from crawler.platform_factory import PlatformFactory
+from utils.deduplication import deduplication_service
+from config.keywords import get_all_keywords
 
 logger = structlog.get_logger()
 

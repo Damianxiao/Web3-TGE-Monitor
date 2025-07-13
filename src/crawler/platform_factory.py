@@ -5,9 +5,9 @@
 from typing import Dict, Type, List, Optional
 import structlog
 
-from .base_platform import AbstractPlatform
-from .models import Platform
-from ..config.settings import settings
+from crawler.base_platform import AbstractPlatform
+from crawler.models import Platform
+from config.settings import settings
 
 logger = structlog.get_logger()
 
