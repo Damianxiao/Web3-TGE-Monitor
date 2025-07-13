@@ -155,6 +155,14 @@ def auto_register_platforms():
     except ImportError as e:
         logger.warning("Failed to register Weibo platform", error=str(e))
     
+    # 注册知乎平台
+    try:
+        from .platforms.zhihu_platform import ZhihuPlatform
+        PlatformFactory.register(Platform.ZHIHU, ZhihuPlatform)
+        logger.info("Platform registered", platform="zhihu")
+    except ImportError as e:
+        logger.warning("Failed to register Zhihu platform", error=str(e))
+    
     # 可以继续添加其他平台的自动注册
     # try:
     #     from .platforms.douyin_platform import DouyinPlatform
