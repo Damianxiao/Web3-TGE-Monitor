@@ -106,6 +106,13 @@ class PlatformFactory:
         platform_configs = {
             Platform.XHS: {
                 'mediacrawler_path': settings.mediacrawler_path,
+                'xhs_cookie': settings.xhs_cookie,
+                'xhs_search_type': settings.xhs_search_type,
+                'xhs_max_pages': settings.xhs_max_pages,
+                'xhs_rate_limit': settings.xhs_rate_limit,
+                'xhs_enabled': settings.xhs_enabled,
+                'xhs_login_method': settings.xhs_login_method,
+                'xhs_headless': settings.xhs_headless,
                 'rate_limit': {
                     'requests_per_minute': 20,
                     'delay_between_requests': 3.0

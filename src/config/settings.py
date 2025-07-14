@@ -43,6 +43,15 @@ class Settings(BaseSettings):
     mediacrawler_headless: bool = True
     mediacrawler_save_data: bool = True
     
+    # XHS (小红书) 平台配置
+    xhs_cookie: str = ""
+    xhs_search_type: str = "综合"
+    xhs_max_pages: int = 10
+    xhs_rate_limit: int = 60
+    xhs_enabled: bool = True
+    xhs_login_method: str = "cookie"
+    xhs_headless: bool = True
+    
     @field_validator('mediacrawler_path')
     @classmethod
     def validate_mediacrawler_path(cls, v):
