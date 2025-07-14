@@ -89,7 +89,7 @@ class ZhihuMediaCrawlerIntegrationTester:
                 logger.info("✅ MediaCrawler适配器工作正常")
                 return {
                     'success': True,
-                    'message': 'MediaCrawler适配器连接成功'
+                    'message': 'MediaCrawler适配器连接成功，已启用完整集成'
                 }
             else:
                 logger.error("❌ MediaCrawler适配器ping失败")
@@ -280,6 +280,13 @@ class ZhihuMediaCrawlerIntegrationTester:
             search_result['success'] and
             conversion_result['success']
         )
+        
+        # 清理资源
+        try:
+            await self.platform.cleanup()
+            logger.info("测试资源清理完成")
+        except Exception as e:
+            logger.warning(f"清理资源时出错: {e}")
         
         return test_results
 
