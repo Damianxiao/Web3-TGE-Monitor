@@ -79,6 +79,7 @@ mediacrawler
 browser_data/
 **/browser_data/
 **/data/xhs/
+**/data/zhihu/
 *.crdownload
 *.part
 
