@@ -71,8 +71,8 @@ coverage.xml
 .cache/
 data/cache/
 
-# MediaCrawler - entire directory ignored
-mediacrawler/
+# MediaCrawler - symbolic link to submodule (ignore link, not submodule)
+mediacrawler
 
 # MediaCrawler generated files
 *_user_data_dir/

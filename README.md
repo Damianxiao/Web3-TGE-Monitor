@@ -21,9 +21,12 @@
 ### 一键启动
 
 ```bash
-# 1. 克隆项目
-git clone <项目地址>
+# 1. 克隆项目（包含submodule）
+git clone --recurse-submodules <项目地址>
 cd Web3-TGE-Monitor
+
+# 如果已经克隆但未初始化submodule，运行：
+# git submodule update --init --recursive
 
 # 2. 配置环境变量
 cp .env.example .env
@@ -33,6 +36,14 @@ cp .env.example .env
 chmod +x start.sh
 ./start.sh
 ```
+
+### MediaCrawler依赖说明
+
+本项目依赖MediaCrawler进行社交媒体数据采集。我们使用Git submodule管理这个依赖：
+
+- **推荐方式**: 使用Git submodule（已自动配置）
+- **路径配置**: 在`.env`文件中设置`MEDIACRAWLER_PATH=./external/MediaCrawler`
+- **手动管理**: 如果您有独立的MediaCrawler安装，可以设置自定义路径
 
 ### API接口
 
@@ -51,6 +62,8 @@ Web3-TGE-Monitor/
 │   ├── api/                # API服务
 │   ├── database/           # 数据库模块
 │   └── utils/              # 工具模块
+├── external/               # 外部依赖
+│   └── MediaCrawler/       # MediaCrawler submodule
 ├── tests/                  # 测试代码
 ├── data/                   # 数据存储
 └── docs/                   # 文档

@@ -37,15 +37,15 @@ class ZhihuClientTester:
     """知乎客户端测试器"""
     
     def __init__(self):
-        from crawler.platforms.zhihu_platform import ZhihuPlatform, SimplifiedZhihuClient
+        from crawler.platforms.zhihu_platform import ZhihuPlatform
+        from crawler.platforms.mediacrawler_zhihu_adapter import MediaCrawlerZhihuAdapter
         
         self.cookie = os.getenv("ZHIHU_COOKIE", "")
         self.platform = ZhihuPlatform()
         
-        # 直接创建客户端实例
-        self.client = SimplifiedZhihuClient(
+        # 创建真实的MediaCrawler适配器实例
+        self.client = MediaCrawlerZhihuAdapter(
             cookie=self.cookie,
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
             logger=logger
         )
     
@@ -53,65 +53,69 @@ class ZhihuClientTester:
         """测试不同搜索类型"""
         logger.info("🔍 测试不同知乎搜索类型...")
         
+        # 首先初始化MediaCrawler适配器
+        logger.info("🚀 初始化MediaCrawler适配器...")
+        init_success = await self.client.initialize()
+        if not init_success:
+            logger.error("❌ MediaCrawler适配器初始化失败")
+            return {"error": "MediaCrawler适配器初始化失败"}
+        
+        logger.info("✅ MediaCrawler适配器初始化成功")
+        
         search_types = ["综合", "问题", "回答", "文章", "想法"]
         test_keyword = "Web3"
         results = {}
         
-        for search_type in search_types:
-            logger.info(f"📝 测试搜索类型: {search_type}")
-            
-            try:
-                # 映射搜索类型
-                mapped_type = self.platform._map_search_type(search_type)
+        try:
+            for search_type in search_types:
+                logger.info(f"📝 测试搜索类型: {search_type}")
                 
-                # 执行搜索
-                response = await self.client.get_note_by_keyword(
-                    keyword=test_keyword,
-                    page=1,
-                    search_type=mapped_type
-                )
-                
-                if response and 'data' in response:
-                    data_items = response['data']
-                    if isinstance(data_items, list):
+                try:
+                    # 使用MediaCrawler适配器进行搜索
+                    response = await self.client.search_by_keyword(
+                        keyword=test_keyword,
+                        page=1,
+                        page_size=10
+                    )
+                    
+                    if response and isinstance(response, list):
                         # 分析内容类型
                         content_types = {}
-                        for item in data_items:
+                        for item in response:
                             item_type = item.get('type', 'unknown')
                             content_types[item_type] = content_types.get(item_type, 0) + 1
                         
                         results[search_type] = {
                             'success': True,
-                            'result_count': len(data_items),
+                            'result_count': len(response),
                             'content_types': content_types,
-                            'sample_data': data_items[:2] if data_items else []  # 保存前两条样本
+                            'sample_data': response[:2] if response else []  # 保存前两条样本
                         }
                         
                         logger.info(f"✅ {search_type} 搜索成功",
-                                  result_count=len(data_items),
+                                  result_count=len(response),
                                   content_types=content_types)
                     else:
                         results[search_type] = {
                             'success': False,
-                            'error': 'data字段不是列表格式'
+                            'error': 'Invalid response format'
                         }
                         logger.warning(f"⚠️ {search_type} 搜索数据格式异常")
-                else:
+                        
+                    # 添加延迟避免过快请求
+                    await asyncio.sleep(3)
+                    
+                except Exception as e:
                     results[search_type] = {
                         'success': False,
-                        'error': '响应中无data字段'
+                        'error': str(e)
                     }
-                    logger.warning(f"⚠️ {search_type} 搜索无有效数据")
-                    
-                # 添加延迟避免过快请求
-                await asyncio.sleep(2)
-                
-            except Exception as e:
-                results[search_type] = {
-                    'success': False,
-                    'error': str(e)
-                }
-                logger.error(f"❌ {search_type} 搜索失败", error=str(e))
+                    logger.error(f"❌ {search_type} 搜索失败", error=str(e))
+            
+        finally:
+            # 清理资源
+            await self.client.close()
+            logger.info("🧹 MediaCrawler适配器资源已清理")
         
         return results
     
