@@ -145,6 +145,23 @@ class PlatformFactory:
                     'max_retries': 3,
                     'backoff_factor': 2.0
                 }
+            },
+            Platform.DOUYIN: {
+                'mediacrawler_path': settings.mediacrawler_path,
+                'douyin_cookie': getattr(settings, 'douyin_cookie', ''),
+                'douyin_max_pages': getattr(settings, 'douyin_max_pages', 10),
+                'douyin_rate_limit': getattr(settings, 'douyin_rate_limit', 60),
+                'douyin_enabled': getattr(settings, 'douyin_enabled', True),
+                'douyin_login_method': getattr(settings, 'douyin_login_method', 'cookie'),
+                'douyin_headless': getattr(settings, 'douyin_headless', True),
+                'rate_limit': {
+                    'requests_per_minute': 20,
+                    'delay_between_requests': 3.0
+                },
+                'retry': {
+                    'max_retries': 3,
+                    'backoff_factor': 2.0
+                }
             }
         }
         
@@ -181,6 +198,14 @@ def auto_register_platforms():
         logger.info("Platform registered", platform="zhihu")
     except ImportError as e:
         logger.warning("Failed to register Zhihu platform", error=str(e))
+    
+    # 注册抖音平台
+    try:
+        from .platforms.douyin_platform import DouyinPlatform
+        PlatformFactory.register(Platform.DOUYIN, DouyinPlatform)
+        logger.info("Platform registered", platform="douyin")
+    except ImportError as e:
+        logger.warning("Failed to register Douyin platform", error=str(e))
     
     # 可以继续添加其他平台的自动注册
     # try:

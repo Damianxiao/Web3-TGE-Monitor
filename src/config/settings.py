@@ -52,6 +52,14 @@ class Settings(BaseSettings):
     xhs_login_method: str = "cookie"
     xhs_headless: bool = True
     
+    # Douyin (抖音) 平台配置
+    douyin_cookie: str = ""
+    douyin_max_pages: int = 10
+    douyin_rate_limit: int = 60
+    douyin_enabled: bool = True
+    douyin_login_method: str = "cookie"
+    douyin_headless: bool = True
+    
     @field_validator('mediacrawler_path')
     @classmethod
     def validate_mediacrawler_path(cls, v):
