@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     douyin_login_method: str = "cookie"
     douyin_headless: bool = True
     
+    # Bilibili (B站) 平台配置
+    bilibili_cookie: str = ""
+    bilibili_max_pages: int = 10
+    bilibili_rate_limit: int = 60
+    bilibili_enabled: bool = True
+    bilibili_login_method: str = "cookie"
+    bilibili_headless: bool = True
+    
     @field_validator('mediacrawler_path')
     @classmethod
     def validate_mediacrawler_path(cls, v):

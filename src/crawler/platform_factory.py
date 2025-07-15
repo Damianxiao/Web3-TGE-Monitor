@@ -162,6 +162,23 @@ class PlatformFactory:
                     'max_retries': 3,
                     'backoff_factor': 2.0
                 }
+            },
+            Platform.BILIBILI: {
+                'mediacrawler_path': settings.mediacrawler_path,
+                'bilibili_cookie': getattr(settings, 'bilibili_cookie', ''),
+                'bilibili_max_pages': getattr(settings, 'bilibili_max_pages', 10),
+                'bilibili_rate_limit': getattr(settings, 'bilibili_rate_limit', 60),
+                'bilibili_enabled': getattr(settings, 'bilibili_enabled', True),
+                'bilibili_login_method': getattr(settings, 'bilibili_login_method', 'cookie'),
+                'bilibili_headless': getattr(settings, 'bilibili_headless', True),
+                'rate_limit': {
+                    'requests_per_minute': 25,
+                    'delay_between_requests': 2.5
+                },
+                'retry': {
+                    'max_retries': 3,
+                    'backoff_factor': 2.0
+                }
             }
         }
         
@@ -206,6 +223,14 @@ def auto_register_platforms():
         logger.info("Platform registered", platform="douyin")
     except ImportError as e:
         logger.warning("Failed to register Douyin platform", error=str(e))
+    
+    # 注册B站平台
+    try:
+        from .platforms.bilibili_platform import BilibiliPlatform
+        PlatformFactory.register(Platform.BILIBILI, BilibiliPlatform)
+        logger.info("Platform registered", platform="bilibili")
+    except ImportError as e:
+        logger.warning("Failed to register Bilibili platform", error=str(e))
     
     # 可以继续添加其他平台的自动注册
     # try:
