@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     redis_db: int = 0
     
     # MediaCrawler配置
-    mediacrawler_path: str = "./mediacrawler"
+    mediacrawler_path: str = "./external/MediaCrawler"
     mediacrawler_enable_proxy: bool = False
     mediacrawler_headless: bool = True
     mediacrawler_save_data: bool = True

@@ -1,103 +1,184 @@
 """
-微博平台适配器
-按照MULTI_PLATFORM_DEVELOPMENT_PLAN.md第3.1节实现
+微博平台适配器 - 完整MediaCrawler集成版
+直接使用项目内部的mediacrawler模块，完全按照MediaCrawler的成功模式实现
 """
+import json
+import sys
+import os
+import asyncio
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+from pathlib import Path
 import structlog
-import re
-import os
-import sys
 
-from crawler.base_platform import AbstractPlatform, PlatformError
-from crawler.models import RawContent, Platform, ContentType
+from ..base_platform import AbstractPlatform, PlatformError, PlatformUnavailableError
+from ..models import RawContent, Platform, ContentType
 
 logger = structlog.get_logger()
 
 
 class WeiboPlatform(AbstractPlatform):
-    """
-    微博平台适配器
-    支持微博内容搜索和数据转换
-    """
+    """微博平台实现 - 完整MediaCrawler集成版"""
     
     def __init__(self, config: Dict[str, Any] = None):
-        # 先设置platform_name，因为父类构造函数需要使用它
-        self.platform_name = Platform.WEIBO
-        
         super().__init__(config)
-        self.logger = logger.bind(platform=self.platform_name.value)
         
-        # 微博特定配置
-        self.search_type = os.getenv("WEIBO_SEARCH_TYPE", "综合")
-        self.max_pages = int(os.getenv("WEIBO_MAX_PAGES", "10"))
-        self.rate_limit = int(os.getenv("WEIBO_RATE_LIMIT", "60"))
-        self.cookie = os.getenv("WEIBO_COOKIE", "")
-        self.login_method = os.getenv("WEIBO_LOGIN_METHOD", "cookie")
-        self.headless = os.getenv("WEIBO_HEADLESS", "true").lower() == "true"
+        # 从配置获取mediacrawler路径，确保与其他平台一致
+        self.mediacrawler_path = config.get('mediacrawler_path', '') if config else ''
+        if not self.mediacrawler_path:
+            # 如果配置中没有路径，尝试从环境变量获取
+            import os
+            from pathlib import Path
+            # 首先尝试使用环境变量
+            env_path = os.getenv('MEDIACRAWLER_PATH')
+            if env_path:
+                self.mediacrawler_path = env_path
+            else:
+                # 最后使用默认的相对路径
+                project_root = Path(__file__).parent.parent.parent.parent
+                self.mediacrawler_path = str(project_root / "external" / "MediaCrawler")
         
-        # MediaCrawler集成
-        self._crawler = None
-        self._mediacrawler_path = os.getenv("MEDIACRAWLER_PATH", "./mediacrawler")
-        self._mediacrawler_modules = None
-        
-        # 延迟导入MediaCrawler组件，避免初始化时的配置问题
-        
-    def _import_mediacrawler_modules(self):
-        """延迟导入MediaCrawler模块"""
-        if self._mediacrawler_modules is not None:
-            return self._mediacrawler_modules
+        # 确保路径是绝对路径
+        import os
+        from pathlib import Path
+        if not os.path.isabs(self.mediacrawler_path):
+            project_root = Path(__file__).parent.parent.parent.parent
+            self.mediacrawler_path = str(project_root / self.mediacrawler_path)
             
+        self._weibo_client = None
+        
+        # 确保mediacrawler在Python路径中
+        self._ensure_mediacrawler_in_path()
+        
+    def _ensure_mediacrawler_in_path(self):
+        """确保mediacrawler路径在Python路径中"""
+        if self.mediacrawler_path not in sys.path:
+            sys.path.insert(0, self.mediacrawler_path)
+            self.logger.info("Added mediacrawler to Python path", path=self.mediacrawler_path)
+        
+    def _setup_mediacrawler_environment(self):
+        """设置MediaCrawler环境变量和配置"""
+        import os
+        
+        # 设置必要的环境变量
+        os.environ['MEDIACRAWLER_PATH'] = self.mediacrawler_path
+        
+        # 在导入前手动添加缺失的配置常量到config模块
         try:
-            # 添加MediaCrawler路径到系统路径
-            if self._mediacrawler_path not in sys.path:
-                sys.path.insert(0, self._mediacrawler_path)
+            original_cwd = os.getcwd()
+            os.chdir(self.mediacrawler_path)
             
-            # 导入微博相关模块
-            from media_platform.weibo.client import WeiboClient
-            from media_platform.weibo.field import SearchType
+            import config
             
-            self._mediacrawler_modules = {
-                'WeiboClient': WeiboClient,
-                'SearchType': SearchType
-            }
+            # 添加缺失的缓存配置常量
+            if not hasattr(config, 'CACHE_TYPE_MEMORY'):
+                setattr(config, 'CACHE_TYPE_MEMORY', 'memory')
+            if not hasattr(config, 'CACHE_TYPE_REDIS'):
+                setattr(config, 'CACHE_TYPE_REDIS', 'redis')
             
-            self.logger.info("MediaCrawler weibo modules imported successfully")
-            return self._mediacrawler_modules
+            # 添加其他缺失的配置常量    
+            if not hasattr(config, 'STOP_WORDS_FILE'):
+                setattr(config, 'STOP_WORDS_FILE', './docs/hit_stopwords.txt')
+            if not hasattr(config, 'FONT_PATH'):
+                setattr(config, 'FONT_PATH', './docs/STZHONGS.TTF')
+            if not hasattr(config, 'START_DAY'):
+                setattr(config, 'START_DAY', '2024-01-01')
+            if not hasattr(config, 'END_DAY'):
+                setattr(config, 'END_DAY', '2024-01-01')
+            if not hasattr(config, 'ALL_DAY'):
+                setattr(config, 'ALL_DAY', False)
+            if not hasattr(config, 'CUSTOM_WORDS'):
+                setattr(config, 'CUSTOM_WORDS', {})
+            if not hasattr(config, 'HEADLESS'):
+                setattr(config, 'HEADLESS', True)
+            if not hasattr(config, 'SAVE_LOGIN_STATE'):
+                setattr(config, 'SAVE_LOGIN_STATE', True)
+            if not hasattr(config, 'USER_DATA_DIR'):
+                setattr(config, 'USER_DATA_DIR', '%s_user_data_dir')
+            if not hasattr(config, 'ENABLE_IP_PROXY'):
+                setattr(config, 'ENABLE_IP_PROXY', False)
+                
+            self.logger.info("MediaCrawler environment setup completed")
             
-        except ImportError as e:
-            self.logger.warning(f"Failed to import MediaCrawler modules: {e}")
-            self.logger.info("Using simplified HTTP client instead")
-            return None
         except Exception as e:
-            self.logger.error(f"Unexpected error importing MediaCrawler: {e}")
-            return None
+            self.logger.warning("Failed to setup MediaCrawler environment", error=str(e))
+        finally:
+            os.chdir(original_cwd)
         
     def get_platform_name(self) -> Platform:
         """获取平台名称"""
-        return self.platform_name
+        return Platform.WEIBO
     
     async def is_available(self) -> bool:
-        """检查微博平台是否可用"""
+        """检查平台是否可用"""
+        original_cwd = os.getcwd()
         try:
-            # 检查Cookie配置
-            if not self.cookie:
-                self.logger.warning("Weibo cookie not configured")
-                return False
+            # 验证mediacrawler目录结构
+            mediacrawler_path = Path(self.mediacrawler_path)
+            required_files = [
+                mediacrawler_path / "media_platform" / "weibo" / "core.py",
+                mediacrawler_path / "media_platform" / "weibo" / "client.py",
+                mediacrawler_path / "base" / "base_crawler.py"
+            ]
             
-            # 检查登录状态
-            login_status = await self._check_login_status()
+            for required_file in required_files:
+                if not required_file.exists():
+                    self.logger.error("Required file not found", file=str(required_file))
+                    return False
             
-            if not login_status:
-                self.logger.warning("Weibo login check failed")
-                return False
-                
-            self.logger.info("Weibo platform is available")
+            # 切换到mediacrawler目录以确保相对路径正确
+            os.chdir(self.mediacrawler_path)
+            
+            # 再次确保mediacrawler在Python路径中
+            self._ensure_mediacrawler_in_path()
+            
+            # 设置MediaCrawler环境
+            self._setup_mediacrawler_environment()
+            
+            # 尝试导入mediacrawler的微博模块
+            from media_platform.weibo import client as weibo_client
+            from media_platform.weibo import core as weibo_core
+            
+            self.logger.info("Weibo platform modules imported successfully")
             return True
             
         except Exception as e:
-            self.logger.error("Weibo platform availability check failed", error=str(e))
+            self.logger.error("Weibo platform not available", error=str(e))
             return False
+        finally:
+            # 恢复原工作目录
+            os.chdir(original_cwd)
+    
+    async def _get_weibo_client(self):
+        """获取微博爬虫实例（延迟初始化）"""
+        if self._weibo_client is None:
+            original_cwd = os.getcwd()
+            try:
+                # 切换到mediacrawler目录以确保相对路径正确
+                os.chdir(self.mediacrawler_path)
+                
+                # 再次确保mediacrawler在Python路径中
+                self._ensure_mediacrawler_in_path()
+                
+                # 设置MediaCrawler环境
+                self._setup_mediacrawler_environment()
+                
+                # 导入MediaCrawler的微博核心爬虫
+                from media_platform.weibo.core import WeiboCrawler
+                
+                # 创建爬虫实例
+                self._weibo_client = WeiboCrawler()
+                
+                self.logger.info("Weibo crawler initialized")
+                
+            except Exception as e:
+                self.logger.error("Failed to initialize Weibo crawler", error=str(e))
+                raise PlatformError("weibo", f"Failed to initialize Weibo crawler: {str(e)}")
+            finally:
+                # 恢复原工作目录
+                os.chdir(original_cwd)
+        
+        return self._weibo_client
     
     async def crawl(
         self, 
@@ -106,7 +187,7 @@ class WeiboPlatform(AbstractPlatform):
         **kwargs
     ) -> List[RawContent]:
         """
-        爬取微博内容
+        爬取微博内容 - 完整MediaCrawler方式
         
         Args:
             keywords: 搜索关键词列表
@@ -116,243 +197,350 @@ class WeiboPlatform(AbstractPlatform):
         Returns:
             爬取到的内容列表
         """
+        original_cwd = os.getcwd()
+        original_keywords = None
+        config_file_path = None
         
-        # 检查平台可用性
-        if not await self.is_available():
-            raise PlatformError(
-                platform=self.platform_name.value,
-                message="Platform not available",
-                error_code="PLATFORM_UNAVAILABLE"
-            )
-        
-        # 验证关键词
-        validated_keywords = await self.validate_keywords(keywords)
-        
-        # 执行实际爬取
-        raw_data = await self._execute_crawl(validated_keywords, max_count, **kwargs)
-        
-        # 转换数据格式
-        raw_contents = []
-        for item in raw_data:
+        try:
+            # 切换到mediacrawler目录
+            os.chdir(self.mediacrawler_path)
+            
+            # 再次确保mediacrawler在Python路径中
+            self._ensure_mediacrawler_in_path()
+            
+            # 设置MediaCrawler环境
+            self._setup_mediacrawler_environment()
+            
+            # 首先修改配置文件（在任何MediaCrawler导入之前）
             try:
-                content = self._convert_to_raw_content(item)
-                raw_contents.append(content)
+                # 读取并修改配置文件
+                config_file_path = os.path.join(self.mediacrawler_path, "config", "base_config.py")
+                
+                with open(config_file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # 查找并替换KEYWORDS行
+                import re
+                pattern = r'KEYWORDS\s*=\s*"([^"]*)"'
+                match = re.search(pattern, content)
+                
+                if match:
+                    original_keywords = match.group(1)
+                    new_keywords = ",".join(keywords)
+                    new_content = re.sub(pattern, f'KEYWORDS = "{new_keywords}"', content)
+                    
+                    # 写入临时修改
+                    with open(config_file_path, 'w', encoding='utf-8') as f:
+                        f.write(new_content)
+                    
+                    self.logger.info("Updated MediaCrawler keywords before import", 
+                                   original=original_keywords, 
+                                   new=new_keywords)
+                else:
+                    self.logger.warning("Could not find KEYWORDS pattern in config file")
+                    
             except Exception as e:
-                self.logger.warning("Failed to transform weibo content", 
-                                  content_id=item.get('id', 'unknown'),
-                                  error=str(e))
-        
-        # 过滤内容
-        filtered_contents = await self.filter_content(raw_contents)
-        
-        self.logger.info("Weibo crawl completed",
-                        keywords=validated_keywords,
-                        raw_count=len(raw_data),
-                        filtered_count=len(filtered_contents))
-        
-        return filtered_contents
-    
-    async def _execute_crawl(
-        self, 
-        keywords: List[str], 
-        max_count: int, 
-        **kwargs
-    ) -> List[Dict[str, Any]]:
-        """执行微博搜索爬取"""
-        
-        try:
-            # 获取微博客户端
-            client = await self._get_weibo_client()
+                self.logger.warning("Failed to update MediaCrawler keywords", error=str(e))
             
-            # 构建搜索关键词
-            search_keyword = " ".join(keywords)
+            # 验证关键词
+            validated_keywords = await self.validate_keywords(keywords)
             
-            # 计算页数
-            max_pages = min(max_count // 20 + 1, self.max_pages)
+            self.logger.info("Starting Weibo crawl with complete MediaCrawler",
+                           keywords=validated_keywords,
+                           max_count=max_count)
             
-            # 映射搜索类型
-            search_type = self._map_search_type(self.search_type)
+            # 使用完整的MediaCrawler方式进行搜索
+            raw_data = await self._search_with_complete_mediacrawler(validated_keywords, max_count)
             
-            self.logger.info("Starting weibo search",
-                           keyword=search_keyword,
-                           max_pages=max_pages,
-                           search_type=self.search_type)
-            
-            all_results = []
-            
-            # 分页搜索
-            for page in range(1, max_pages + 1):
+            # 转换数据格式
+            raw_contents = []
+            for item in raw_data:
                 try:
-                    # 执行搜索
-                    response = await client.get_note_by_keyword(
-                        keyword=search_keyword,
-                        page=page,
-                        search_type=search_type
-                    )
-                    
-                    # 解析搜索结果
-                    page_results = self._parse_search_response(response)
-                    
-                    if not page_results:
-                        self.logger.info("No more results found", page=page)
-                        break
-                    
-                    all_results.extend(page_results)
-                    
-                    # 检查是否达到最大数量
-                    if len(all_results) >= max_count:
-                        all_results = all_results[:max_count]
-                        break
-                    
-                    self.logger.info("Page search completed", 
-                                   page=page, 
-                                   page_results=len(page_results),
-                                   total_results=len(all_results))
-                    
-                    # 延迟避免被限流
-                    await self._delay_between_requests()
-                    
+                    content = await self.transform_to_raw_content(item)
+                    raw_contents.append(content)
                 except Exception as e:
-                    self.logger.error("Page search failed", 
-                                    page=page, 
-                                    error=str(e))
-                    continue
+                    self.logger.warning("Failed to transform content", 
+                                      content_id=item.get('id', 'unknown'),
+                                      error=str(e))
             
-            self.logger.info("Weibo search completed", 
-                           total_results=len(all_results))
+            # 过滤内容
+            filtered_contents = await self.filter_content(raw_contents)
             
-            return all_results
+            self.logger.info("Weibo crawl completed",
+                            keywords=validated_keywords,
+                            raw_count=len(raw_data),
+                            transformed_count=len(raw_contents),
+                            filtered_count=len(filtered_contents))
+            
+            return filtered_contents
             
         except Exception as e:
-            self.logger.error("Weibo search failed", error=str(e))
-            raise PlatformError(
-                platform=self.platform_name.value,
-                message=f"Search failed: {str(e)}",
-                error_code="SEARCH_FAILED"
-            )
+            self.logger.error("Weibo crawl failed", error=str(e))
+            
+            # 如果原始异常包含详细错误信息，保留它们
+            if hasattr(e, 'detailed_errors'):
+                platform_error = PlatformError("weibo", f"Crawl failed: {str(e)}")
+                platform_error.detailed_errors = e.detailed_errors
+                raise platform_error
+            else:
+                raise PlatformError("weibo", f"Crawl failed: {str(e)}")
+        finally:
+            # 恢复原工作目录
+            os.chdir(original_cwd)
+            
+            # 恢复原始关键词配置
+            try:
+                if original_keywords is not None and config_file_path and os.path.exists(config_file_path):
+                    with open(config_file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # 恢复原始关键词
+                    import re
+                    pattern = r'KEYWORDS\s*=\s*"([^"]*)"'
+                    restored_content = re.sub(pattern, f'KEYWORDS = "{original_keywords}"', content)
+                    
+                    with open(config_file_path, 'w', encoding='utf-8') as f:
+                        f.write(restored_content)
+                    
+                    self.logger.info("Restored original MediaCrawler keywords", keywords=original_keywords)
+            except Exception as e:
+                self.logger.warning("Failed to restore original keywords", error=str(e))
     
-    def _parse_search_response(self, response: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """解析微博搜索响应"""
+    async def _search_with_complete_mediacrawler(self, keywords: List[str], max_count: int) -> List[Dict[str, Any]]:
+        """
+        使用完整的MediaCrawler方式进行搜索，完全按照MediaCrawler的原生实现
+        """
+        original_cwd = os.getcwd()
         try:
-            # 微博API返回的数据结构
-            data = response.get('data', {})
-            cards = data.get('cards', [])
+            # 切换到mediacrawler目录
+            os.chdir(self.mediacrawler_path)
             
-            results = []
-            for card in cards:
-                # 过滤掉非微博内容卡片
-                if card.get('card_type') == 9:  # 微博内容卡片
-                    mblog = card.get('mblog', {})
-                    if mblog:
-                        results.append(mblog)
+            # 导入完整的MediaCrawler核心模块
+            from media_platform.weibo.core import WeiboCrawler
+            from playwright.async_api import async_playwright
+            import config
             
-            return results
+            self.logger.info("Starting complete MediaCrawler search", keywords=keywords, max_count=max_count)
+            
+            # 创建完整的MediaCrawler爬虫实例
+            weibo_crawler = WeiboCrawler()
+            all_notes = []
+            
+            async with async_playwright() as playwright:
+                # 启动浏览器，按照MediaCrawler的标准方式
+                chromium = playwright.chromium
+                weibo_crawler.browser_context = await weibo_crawler.launch_browser(
+                    chromium, None, weibo_crawler.mobile_user_agent, headless=config.HEADLESS
+                )
+                
+                # 添加初始化脚本
+                await weibo_crawler.browser_context.add_init_script(path="libs/stealth.min.js")
+                
+                # 创建页面
+                weibo_crawler.context_page = await weibo_crawler.browser_context.new_page()
+                await weibo_crawler.context_page.goto(weibo_crawler.mobile_index_url)
+                
+                # 创建客户端
+                weibo_crawler.wb_client = await weibo_crawler.create_weibo_client(None)
+                
+                # 检查登录状态
+                if not await weibo_crawler.wb_client.pong():
+                    self.logger.info("MediaCrawler: connection test failed, performing login")
+                    from media_platform.weibo.login import WeiboLogin
+                    
+                    login_obj = WeiboLogin(
+                        login_type=config.LOGIN_TYPE,
+                        login_phone="",
+                        browser_context=weibo_crawler.browser_context,
+                        context_page=weibo_crawler.context_page,
+                        cookie_str=config.COOKIES,
+                    )
+                    await login_obj.begin()
+                    
+                    # 登录成功后重定向到手机端的网站，再更新手机端登录成功的cookie
+                    await weibo_crawler.context_page.goto(weibo_crawler.mobile_index_url)
+                    await asyncio.sleep(2)
+                    await weibo_crawler.wb_client.update_cookies(browser_context=weibo_crawler.browser_context)
+                else:
+                    self.logger.info("MediaCrawler: connection test passed")
+                
+                # 执行搜索，按照MediaCrawler的搜索逻辑
+                from media_platform.weibo.field import SearchType
+                from media_platform.weibo.help import filter_search_result_card
+                
+                weibo_limit_count = 10  # 微博每页固定限制
+                search_type = SearchType.DEFAULT  # 使用默认搜索类型
+                
+                for keyword in keywords:
+                    self.logger.info("MediaCrawler search for keyword", keyword=keyword)
+                    
+                    page = 1
+                    
+                    try:
+                        search_res = await weibo_crawler.wb_client.get_note_by_keyword(
+                            keyword=keyword,
+                            page=page,
+                            search_type=search_type
+                        )
+                        
+                        self.logger.info("MediaCrawler search result", 
+                                       keyword=keyword,
+                                       has_cards=bool(search_res and search_res.get("cards")),
+                                       card_count=len(search_res.get("cards", [])) if search_res else 0)
+                        
+                        if not search_res or not search_res.get("cards"):
+                            self.logger.warning("No notes found for keyword", keyword=keyword)
+                            continue
+                        
+                        # 过滤搜索结果卡片
+                        note_list = filter_search_result_card(search_res.get("cards"))
+                        
+                        for note_item in note_list:
+                            if note_item:
+                                mblog: Dict = note_item.get("mblog")
+                                if mblog:
+                                    # 添加来源关键词
+                                    mblog['source_keyword'] = keyword
+                                    all_notes.append(note_item)
+                                    
+                                    self.logger.debug("Found note with complete MediaCrawler", 
+                                                    note_id=mblog.get("id"),
+                                                    keyword=keyword)
+                                    
+                                    # 控制总数
+                                    if len(all_notes) >= max_count:
+                                        break
+                        
+                        self.logger.info("Found notes for keyword", 
+                                       keyword=keyword, 
+                                       count=len([n for n in all_notes if n.get('mblog', {}).get('source_keyword') == keyword]))
+                    
+                    except Exception as e:
+                        self.logger.error("Failed to search keyword with complete MediaCrawler", 
+                                        keyword=keyword, 
+                                        error=str(e))
+                        continue
+                    
+                    # 控制总数
+                    if len(all_notes) >= max_count:
+                        break
+                
+                # 关闭浏览器
+                await weibo_crawler.close()
+            
+            # 截取到指定数量
+            result = all_notes[:max_count]
+            
+            self.logger.info("Complete MediaCrawler search completed", 
+                           total_found=len(all_notes), 
+                           returned=len(result))
+            
+            return result
             
         except Exception as e:
-            self.logger.error("Failed to parse search response", error=str(e))
-            return []
+            self.logger.error("Complete MediaCrawler search failed", error=str(e))
+            raise PlatformError("weibo", f"Complete MediaCrawler search failed: {str(e)}")
+        finally:
+            # 恢复原工作目录
+            os.chdir(original_cwd)
     
-    def _map_search_type(self, search_type_str: str):
-        """映射搜索类型字符串到枚举"""
-        # 尝试导入SearchType
-        modules = self._import_mediacrawler_modules()
-        
-        if modules and 'SearchType' in modules:
-            SearchType = modules['SearchType']
-            type_mapping = {
-                "综合": SearchType.DEFAULT,
-                "实时": SearchType.REAL_TIME,
-                "热门": SearchType.POPULAR,
-                "视频": SearchType.VIDEO
-            }
-            return type_mapping.get(search_type_str, SearchType.DEFAULT)
-        else:
-            # 如果MediaCrawler不可用，使用简化的字符串映射
-            type_mapping = {
-                "综合": "1",
-                "实时": "61", 
-                "热门": "60",
-                "视频": "64"
-            }
-            return type_mapping.get(search_type_str, "1")
-    
-    async def _delay_between_requests(self):
-        """请求间延迟"""
-        import asyncio
-        delay = 60.0 / self.rate_limit  # 根据rate_limit计算延迟
-        await asyncio.sleep(delay)
-    
-    def _convert_to_raw_content(self, weibo_data: Dict[str, Any]) -> RawContent:
+    async def transform_to_raw_content(self, weibo_data: Dict[str, Any]) -> RawContent:
         """
         将微博数据转换为统一的RawContent格式
-        按照文档3.1.2节实现细节
+        适配MediaCrawler的数据结构
         """
-        
-        # 提取基本信息
-        content_id = str(weibo_data.get('id', ''))
-        text_content = weibo_data.get('text', '')
-        user_info = weibo_data.get('user', {})
-        
-        # 构建URL
-        user_id = user_info.get('id', '')
-        source_url = f"https://weibo.com/{user_id}/{content_id}" if user_id and content_id else ""
-        
-        # 解析互动数据
-        like_count = self._parse_count(weibo_data.get('attitudes_count', 0))
-        comment_count = self._parse_count(weibo_data.get('comments_count', 0))
-        share_count = self._parse_count(weibo_data.get('reposts_count', 0))
-        
-        # 提取图片URLs
-        pic_infos = weibo_data.get('pic_infos', {})
-        image_urls = []
-        if pic_infos:
-            for pic_info in pic_infos.values():
-                if 'url' in pic_info:
-                    image_urls.append(pic_info['url'])
-        
-        # 如果pic_infos为空，尝试从pic_urls获取
-        if not image_urls:
-            pic_urls = weibo_data.get('pic_urls', [])
-            if isinstance(pic_urls, list):
-                image_urls = [url for url in pic_urls if isinstance(url, str)]
-        
-        # 解析发布时间
-        publish_time = self._parse_timestamp(weibo_data.get('created_at'))
-        
-        # 提取标签
-        hashtags = self._extract_hashtags(text_content)
-        
-        return RawContent(
-            platform=self.platform_name,
-            content_id=content_id,
-            content_type=ContentType.MIXED if image_urls else ContentType.TEXT,
-            title=text_content[:100] if text_content else "",  # 微博无标题，使用内容前100字符
-            content=text_content,
-            raw_content=str(weibo_data),
-            author_id=str(user_info.get('id', '')),
-            author_name=user_info.get('screen_name', ''),
-            author_avatar=user_info.get('profile_image_url', ''),
-            publish_time=publish_time,
-            crawl_time=datetime.utcnow(),
-            like_count=like_count,
-            comment_count=comment_count,
-            share_count=share_count,
-            image_urls=image_urls,
-            hashtags=hashtags,
-            source_url=source_url,
-            ip_location=weibo_data.get('location', ''),
-            platform_metadata={
-                'weibo_type': weibo_data.get('type', ''),
-                'is_verified': user_info.get('verified', False),
-                'followers_count': user_info.get('followers_count', 0),
-                'original_data': weibo_data
-            }
-        )
+        try:
+            # MediaCrawler返回的数据结构：note_item中包含mblog
+            mblog = weibo_data.get('mblog', {})
+            if not mblog:
+                # 如果没有mblog字段，直接使用weibo_data
+                mblog = weibo_data
+            
+            # 提取基础信息
+            content_id = str(mblog.get('id', ''))
+            text_content = mblog.get('text', '')
+            user_info = mblog.get('user', {})
+            
+            # 构建URL
+            user_id = user_info.get('id', '')
+            source_url = f"https://weibo.com/{user_id}/{content_id}" if user_id and content_id else ""
+            
+            # 解析互动数据
+            like_count = self._parse_count(mblog.get('attitudes_count', 0))
+            comment_count = self._parse_count(mblog.get('comments_count', 0))
+            share_count = self._parse_count(mblog.get('reposts_count', 0))
+            
+            # 处理图片URLs - MediaCrawler格式
+            image_urls = []
+            pics = mblog.get('pics', [])
+            if pics and isinstance(pics, list):
+                for pic in pics:
+                    if isinstance(pic, dict):
+                        # MediaCrawler返回的pic结构
+                        pic_url = pic.get('url') or pic.get('large', {}).get('url', '')
+                        if pic_url:
+                            image_urls.append(pic_url)
+                    elif isinstance(pic, str):
+                        image_urls.append(pic)
+            
+            # 如果pics为空，尝试从pic_infos获取
+            if not image_urls:
+                pic_infos = mblog.get('pic_infos', {})
+                if pic_infos:
+                    for pic_info in pic_infos.values():
+                        if isinstance(pic_info, dict) and 'url' in pic_info:
+                            image_urls.append(pic_info['url'])
+            
+            # 解析发布时间
+            publish_time = self._parse_timestamp(mblog.get('created_at'))
+            
+            # 提取标签 - 从文本中提取话题
+            hashtags = self._extract_hashtags(text_content)
+            
+            # 确定内容类型
+            content_type = ContentType.VIDEO if mblog.get('page_info', {}).get('type') == 'video' else (
+                ContentType.MIXED if image_urls else ContentType.TEXT
+            )
+            
+            return RawContent(
+                platform=Platform.WEIBO,
+                content_id=content_id,
+                content_type=content_type,
+                title=text_content[:100] if text_content else "",  # 微博无标题，使用内容前100字符
+                content=text_content,
+                raw_content=json.dumps(weibo_data, ensure_ascii=False),
+                author_id=str(user_info.get('id', '')),
+                author_name=user_info.get('screen_name', ''),
+                author_avatar=user_info.get('profile_image_url', ''),
+                publish_time=publish_time,
+                crawl_time=datetime.utcnow(),
+                last_update_time=publish_time,
+                like_count=like_count,
+                comment_count=comment_count,
+                share_count=share_count,
+                collect_count=0,  # 微博没有收藏数
+                image_urls=image_urls,
+                video_urls=[],  # 视频URL需要特殊处理，暂时留空
+                tags=hashtags,
+                source_url=source_url,
+                ip_location=mblog.get('location', ''),
+                platform_metadata={
+                    'weibo_type': mblog.get('type', ''),
+                    'is_verified': user_info.get('verified', False),
+                    'followers_count': user_info.get('followers_count', 0),
+                    'source_keyword': mblog.get('source_keyword', ''),
+                    'original_data': weibo_data
+                },
+                source_keywords=[mblog.get('source_keyword', '')] if mblog.get('source_keyword') else []
+            )
+            
+        except Exception as e:
+            raise PlatformError("weibo", f"Failed to transform Weibo data: {str(e)}")
     
-    def _parse_timestamp(self, time_value: Any) -> datetime:
+    def _parse_timestamp(self, time_value: Any) -> Optional[datetime]:
         """解析微博时间戳"""
         if not time_value:
-            return datetime.utcnow()
+            return None
             
         try:
             # 处理Unix时间戳
@@ -381,7 +569,7 @@ class WeiboPlatform(AbstractPlatform):
                               timestamp=time_value, 
                               error=str(e))
         
-        return datetime.utcnow()
+        return None
     
     def _parse_count(self, count_value: Any) -> int:
         """解析微博数量字段（处理中文数字如'1.2万'）"""
@@ -415,6 +603,7 @@ class WeiboPlatform(AbstractPlatform):
             return []
         
         # 微博话题格式: #话题名称#
+        import re
         hashtag_pattern = r'#([^#]+)#'
         hashtags = re.findall(hashtag_pattern, text)
         
@@ -426,198 +615,3 @@ class WeiboPlatform(AbstractPlatform):
                 cleaned_hashtags.append(tag)
         
         return cleaned_hashtags
-    
-    async def _check_login_status(self) -> bool:
-        """检查微博登录状态"""
-        try:
-            # 检查Cookie是否配置
-            if not self.cookie:
-                return False
-            
-            # 通过发送简单API请求验证Cookie有效性
-            import httpx
-            
-            headers = {
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15",
-                "Cookie": self.cookie,
-                "Origin": "https://m.weibo.cn",
-                "Referer": "https://m.weibo.cn/",
-                "Accept": "application/json, text/plain, */*",
-            }
-            
-            # 使用一个简单的验证端点
-            url = "https://m.weibo.cn/api/config"
-            
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, headers=headers)
-                
-                if response.status_code == 200:
-                    try:
-                        result = response.json()
-                        # 如果返回正常的配置信息，说明Cookie有效
-                        if 'data' in result:
-                            self.logger.info("Cookie validation successful")
-                            return True
-                    except:
-                        pass
-                
-                # 如果状态码是403或者其他错误，Cookie可能无效
-                if response.status_code == 403:
-                    self.logger.warning("Cookie appears to be invalid or expired")
-                    return False
-                elif response.status_code == 302:
-                    self.logger.warning("Cookie requires login verification")
-                    return False
-                
-                # 其他错误情况，可能是网络问题，暂时认为Cookie有效
-                self.logger.warning(f"Cookie validation uncertain, status: {response.status_code}")
-                return True
-            
-        except Exception as e:
-            self.logger.error("Login status check failed", error=str(e))
-            # 网络错误等情况下，暂时认为Cookie有效，让后续操作来验证
-            return True
-    
-    async def _get_weibo_client(self):
-        """获取微博客户端实例 - 客户端工厂方法"""
-        if self._crawler is None:
-            self.logger.info(f"Creating Weibo client with login method: {self.login_method}")
-            
-            # 优先尝试Cookie登录
-            if self.login_method == "cookie" and self.cookie:
-                self.logger.info("Using SimplifiedWeiboClient with cookie authentication")
-                self._crawler = SimplifiedWeiboClient(
-                    cookie=self.cookie,
-                    user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15",
-                    logger=self.logger
-                )
-            elif self.login_method == "qrcode" or not self.cookie:
-                # 当明确指定二维码模式，或Cookie未配置时，使用二维码登录
-                try:
-                    from crawler.clients.browser_weibo_client import BrowserWeiboClient
-                    
-                    if not self.cookie:
-                        self.logger.info("Cookie not configured, falling back to QR code login")
-                    else:
-                        self.logger.info("QR code login explicitly requested")
-                        
-                    self.logger.info("Initializing BrowserWeiboClient for QR code login")
-                    self._crawler = BrowserWeiboClient(
-                        mediacrawler_path=self._mediacrawler_path,
-                        headless=self.headless,
-                        logger=self.logger
-                    )
-                    
-                    # 初始化并登录
-                    await self._crawler.initialize()
-                    await self._crawler.login_with_qrcode()
-                    
-                    self.logger.info("BrowserWeiboClient initialized and logged in successfully")
-                    
-                except ImportError as e:
-                    self.logger.error(f"Failed to import BrowserWeiboClient: {e}")
-                    if self.cookie:
-                        self.logger.info("Falling back to SimplifiedWeiboClient with available cookie")
-                        self._crawler = SimplifiedWeiboClient(
-                            cookie=self.cookie,
-                            user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15",
-                            logger=self.logger
-                        )
-                    else:
-                        raise PlatformError(
-                            platform=self.platform_name.value,
-                            message="No authentication method available: Cookie not configured and QR code login failed",
-                            error_code="AUTH_UNAVAILABLE"
-                        )
-                except Exception as e:
-                    self.logger.error(f"Failed to initialize BrowserWeiboClient: {e}")
-                    if self.cookie:
-                        self.logger.info("Falling back to SimplifiedWeiboClient with available cookie")
-                        self._crawler = SimplifiedWeiboClient(
-                            cookie=self.cookie,
-                            user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15",
-                            logger=self.logger
-                        )
-                    else:
-                        raise PlatformError(
-                            platform=self.platform_name.value,
-                            message=f"Authentication failed: {str(e)}",
-                            error_code="AUTH_FAILED"
-                        )
-            else:
-                # 默认降级到Cookie模式
-                self.logger.info("Using SimplifiedWeiboClient as default")
-                self._crawler = SimplifiedWeiboClient(
-                    cookie=self.cookie or "",
-                    user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15",
-                    logger=self.logger
-                )
-                
-        return self._crawler
-
-
-class SimplifiedWeiboClient:
-    """
-    简化的微博客户端
-    不依赖浏览器环境，只使用HTTP请求
-    """
-    
-    def __init__(self, cookie: str, user_agent: str, logger):
-        self.cookie = cookie
-        self.user_agent = user_agent
-        self.logger = logger
-        self._host = "https://m.weibo.cn"
-        
-        # 导入httpx
-        try:
-            import httpx
-            self.httpx = httpx
-        except ImportError:
-            raise ImportError("httpx is required for simplified weibo client")
-    
-    async def get_note_by_keyword(self, keyword: str, page: int = 1, search_type=None) -> Dict:
-        """搜索微博内容"""
-        try:
-            # 构建搜索URL和参数
-            search_type_value = getattr(search_type, 'value', '1') if search_type else '1'
-            containerid = f"100103type={search_type_value}&q={keyword}"
-            
-            url = f"{self._host}/api/container/getIndex"
-            params = {
-                "containerid": containerid,
-                "page_type": "searchall",
-                "page": page,
-            }
-            
-            headers = {
-                "User-Agent": self.user_agent,
-                "Cookie": self.cookie,
-                "Origin": "https://m.weibo.cn",
-                "Referer": "https://m.weibo.cn",
-                "Accept": "application/json, text/plain, */*",
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            }
-            
-            self.logger.info("Making weibo search request", 
-                           url=url, 
-                           keyword=keyword, 
-                           page=page)
-            
-            async with self.httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, params=params, headers=headers)
-                response.raise_for_status()
-                
-                result = response.json()
-                
-                self.logger.info("Weibo search request successful", 
-                               status_code=response.status_code,
-                               has_data='data' in result)
-                
-                return result
-                
-        except Exception as e:
-            self.logger.error("Weibo search request failed", 
-                            keyword=keyword, 
-                            page=page, 
-                            error=str(e))
-            raise

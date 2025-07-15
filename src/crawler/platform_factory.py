@@ -129,9 +129,21 @@ class PlatformFactory:
                 }
             },
             Platform.WEIBO: {
+                'mediacrawler_path': settings.mediacrawler_path,
+                'weibo_cookie': getattr(settings, 'weibo_cookie', ''),
+                'weibo_search_type': getattr(settings, 'weibo_search_type', '综合'),
+                'weibo_max_pages': getattr(settings, 'weibo_max_pages', 10),
+                'weibo_rate_limit': getattr(settings, 'weibo_rate_limit', 60),
+                'weibo_enabled': getattr(settings, 'weibo_enabled', True),
+                'weibo_login_method': getattr(settings, 'weibo_login_method', 'cookie'),
+                'weibo_headless': getattr(settings, 'weibo_headless', True),
                 'rate_limit': {
                     'requests_per_minute': 25,
                     'delay_between_requests': 2.5
+                },
+                'retry': {
+                    'max_retries': 3,
+                    'backoff_factor': 2.0
                 }
             }
         }
