@@ -104,7 +104,8 @@ class BilibiliPlatform(AbstractPlatform):
             if not hasattr(config, 'LOGIN_TYPE'):
                 setattr(config, 'LOGIN_TYPE', 'cookie')
             if not hasattr(config, 'COOKIES'):
-                setattr(config, 'COOKIES', '')
+                cookie_str = os.getenv('BILIBILI_COOKIE', '')
+                setattr(config, 'COOKIES', cookie_str)
                 
             self.logger.info("MediaCrawler environment setup completed")
             

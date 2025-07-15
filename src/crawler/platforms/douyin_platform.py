@@ -104,7 +104,8 @@ class DouyinPlatform(AbstractPlatform):
             if not hasattr(config, 'LOGIN_TYPE'):
                 setattr(config, 'LOGIN_TYPE', 'cookie')
             if not hasattr(config, 'COOKIES'):
-                setattr(config, 'COOKIES', '')
+                cookie_str = os.getenv('DOUYIN_COOKIE', '')
+                setattr(config, 'COOKIES', cookie_str)
                 
             self.logger.info("MediaCrawler environment setup completed")
             
@@ -351,22 +352,81 @@ class DouyinPlatform(AbstractPlatform):
                 # 创建客户端
                 douyin_crawler.dy_client = await douyin_crawler.create_douyin_client(None)
                 
+                # 先设置Cookie到浏览器上下文
+                cookie_str = config.COOKIES
+                self.logger.info("MediaCrawler: setting up cookies", 
+                               cookie_length=len(cookie_str) if cookie_str else 0)
+                
+                if cookie_str:
+                    # 使用MediaCrawler的工具函数转换cookie
+                    from tools import utils
+                    cookie_dict = utils.convert_str_cookie_to_dict(cookie_str)
+                    
+                    # 添加cookie到浏览器上下文
+                    for name, value in cookie_dict.items():
+                        try:
+                            await douyin_crawler.browser_context.add_cookies([{
+                                'name': name,
+                                'value': value,
+                                'domain': '.douyin.com',
+                                'path': '/'
+                            }])
+                        except Exception as e:
+                            self.logger.debug("Failed to add cookie", name=name, error=str(e))
+                    
+                    self.logger.info("MediaCrawler: cookies added to browser context")
+                
                 # 检查登录状态
-                if not await douyin_crawler.dy_client.pong(douyin_crawler.browser_context):
-                    self.logger.info("MediaCrawler: connection test failed, performing login")
-                    from media_platform.douyin.login import DouYinLogin
+                connection_test_passed = False
+                try:
+                    connection_test_passed = await douyin_crawler.dy_client.pong(douyin_crawler.browser_context)
+                except Exception as e:
+                    self.logger.warning("MediaCrawler: connection test exception", error=str(e))
                     
-                    login_obj = DouYinLogin(
-                        login_type=config.LOGIN_TYPE,
-                        login_phone="",
-                        browser_context=douyin_crawler.browser_context,
-                        context_page=douyin_crawler.context_page,
-                        cookie_str=config.COOKIES,
-                    )
-                    await login_obj.begin()
+                if not connection_test_passed:
+                    self.logger.info("MediaCrawler: connection test failed, attempting authentication")
                     
-                    # 登录成功后更新cookie
-                    await douyin_crawler.dy_client.update_cookies(browser_context=douyin_crawler.browser_context)
+                    # 如果有Cookie，尝试直接使用Cookie进行身份验证
+                    if cookie_str:
+                        self.logger.info("MediaCrawler: attempting cookie-based authentication")
+                        try:
+                            # 刷新页面让Cookie生效
+                            await douyin_crawler.context_page.reload()
+                            await asyncio.sleep(2)
+                            
+                            # 再次测试连接
+                            connection_test_passed = await douyin_crawler.dy_client.pong(douyin_crawler.browser_context)
+                            if connection_test_passed:
+                                self.logger.info("MediaCrawler: cookie authentication successful")
+                            else:
+                                self.logger.warning("MediaCrawler: cookie authentication failed")
+                        except Exception as e:
+                            self.logger.warning("MediaCrawler: cookie authentication error", error=str(e))
+                    
+                    # 如果Cookie认证失败，尝试登录流程
+                    if not connection_test_passed:
+                        self.logger.info("MediaCrawler: attempting login flow")
+                        try:
+                            from media_platform.douyin.login import DouYinLogin
+                            
+                            login_obj = DouYinLogin(
+                                login_type=config.LOGIN_TYPE,
+                                login_phone="",
+                                browser_context=douyin_crawler.browser_context,
+                                context_page=douyin_crawler.context_page,
+                                cookie_str=config.COOKIES,
+                            )
+                            await login_obj.begin()
+                            
+                            # 登录成功后更新cookie
+                            await douyin_crawler.dy_client.update_cookies(browser_context=douyin_crawler.browser_context)
+                            connection_test_passed = True
+                            self.logger.info("MediaCrawler: login flow successful")
+                        except Exception as e:
+                            self.logger.error("MediaCrawler: login flow failed", error=str(e))
+                            # 如果登录失败，尝试继续使用现有的浏览器会话
+                            self.logger.info("MediaCrawler: attempting to continue with current session")
+                            connection_test_passed = True  # 强制继续，可能仍然可以搜索
                 else:
                     self.logger.info("MediaCrawler: connection test passed")
                 
@@ -508,13 +568,21 @@ class DouyinPlatform(AbstractPlatform):
             content_type=ContentType.VIDEO,
             title=desc[:100] if desc else "抖音视频",  # 抖音用描述作为标题
             content=desc,
+            raw_content=desc,  # 添加必需的字段
             author_name=author_name,
             author_id=author_id,
             publish_time=publish_time,
+            crawl_time=datetime.now(),  # 添加必需的字段
             source_url=source_url,
             images=images,
             videos=videos,
             source_keywords=source_keywords,
+            
+            # 基础互动数据
+            like_count=digg_count,
+            comment_count=comment_count,
+            share_count=share_count,
+            collect_count=0,  # 抖音没有收藏概念，使用0
             
             # 抖音特有的统计数据
             engagement_stats={
