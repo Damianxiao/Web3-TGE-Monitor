@@ -387,3 +387,291 @@ async def get_recent_analysis(
             status_code=500,
             detail=f"获取最近分析失败: {str(e)}"
         )
+
+
+@router.get("/realtime",
+           response_model=ApiResponse[TGESearchResponse],
+           summary="实时TGE搜索",
+           description="实时搜索TGE项目，优先返回数据库已有内容，可选择是否执行实时爬取")
+async def realtime_search(
+    keywords: str,
+    max_count: int = 20,
+    platforms: str = "xhs,weibo,douyin,bilibili,kuaishou,tieba",
+    enable_crawl: bool = True,
+    cache_hours: int = 2,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    实时TGE搜索
+    
+    提供更灵活的搜索体验：
+    1. 首先查询数据库已有内容
+    2. 如果启用爬取且缓存过期，执行实时爬取
+    3. 合并结果并返回
+    
+    参数说明：
+    - keywords: 搜索关键词，支持多个关键词用逗号分隔
+    - max_count: 最大返回数量
+    - platforms: 搜索平台，用逗号分隔
+    - enable_crawl: 是否启用实时爬取
+    - cache_hours: 缓存有效期（小时）
+    """
+    start_time = time.time()
+    
+    try:
+        # 解析参数
+        keyword_list = [k.strip() for k in keywords.split(",") if k.strip()]
+        platform_list = [p.strip() for p in platforms.split(",") if p.strip()]
+        
+        logger.info("Starting realtime TGE search",
+                   keywords=keyword_list,
+                   platforms=platform_list,
+                   max_count=max_count,
+                   enable_crawl=enable_crawl,
+                   cache_hours=cache_hours)
+        
+        # 1. 查询数据库已有内容
+        cache_cutoff = datetime.utcnow() - timedelta(hours=cache_hours)
+        
+        # 搜索相关项目
+        cached_projects = await TGEProjectCRUD.search_by_keywords(
+            db, 
+            keywords=keyword_list,
+            platforms=platform_list,
+            since=cache_cutoff,
+            limit=max_count
+        )
+        
+        # 转换为分析结果
+        analysis_results = []
+        for project in cached_projects:
+            result = TGEAnalysisResult(
+                token_name=project.token_name,
+                token_symbol=project.token_symbol,
+                ai_summary=project.ai_summary,
+                sentiment=project.sentiment,
+                recommendation=project.recommendation,
+                risk_level=project.risk_level,
+                confidence_score=project.confidence_score,
+                tge_date=project.tge_date,
+                source_platform=project.source_platform,
+                source_count=1
+            )
+            analysis_results.append(result)
+        
+        # 2. 如果启用爬取且缓存结果不足
+        crawl_stats = {}
+        detailed_errors = {}
+        
+        if enable_crawl and len(analysis_results) < max_count:
+            remaining_count = max_count - len(analysis_results)
+            
+            logger.info("Executing realtime crawl", remaining_count=remaining_count)
+            
+            # 执行实时爬取（仅针对结果不足的平台）
+            crawl_request = TGESearchRequest(
+                keywords=keyword_list,
+                max_count=remaining_count,
+                platforms=platform_list,
+                timeout=120  # 实时搜索使用较短超时
+            )
+            
+            # 复用现有的爬取逻辑
+            all_crawled_content = []
+            
+            for platform_name in platform_list:
+                try:
+                    # 检查该平台是否已有足够的缓存结果
+                    platform_cached_count = len([
+                        r for r in analysis_results 
+                        if r.source_platform == platform_name
+                    ])
+                    
+                    if platform_cached_count >= remaining_count // len(platform_list):
+                        crawl_stats[platform_name] = {"status": "skipped_cache_sufficient", "count": 0}
+                        continue
+                    
+                    # 转换平台名称为枚举
+                    try:
+                        platform_enum = Platform(platform_name.lower())
+                    except ValueError:
+                        logger.warning(f"Unknown platform: {platform_name}")
+                        crawl_stats[platform_name] = {"status": "unknown_platform", "count": 0}
+                        continue
+                    
+                    # 创建平台爬虫实例
+                    platform_crawler = await PlatformFactory.create_platform(platform_enum)
+                    if not platform_crawler:
+                        logger.warning(f"Platform not available: {platform_name}")
+                        crawl_stats[platform_name] = {"status": "unavailable", "count": 0}
+                        continue
+                    
+                    # 检查平台是否可用
+                    if not await platform_crawler.is_available():
+                        logger.warning(f"Platform not available: {platform_name}")
+                        crawl_stats[platform_name] = {"status": "unavailable", "count": 0}
+                        continue
+                    
+                    # 执行爬取
+                    crawled_content = await platform_crawler.crawl(
+                        keywords=keyword_list,
+                        max_count=remaining_count // len(platform_list) + 1
+                    )
+                    
+                    all_crawled_content.extend(crawled_content)
+                    crawl_stats[platform_name] = {
+                        "status": "success", 
+                        "count": len(crawled_content)
+                    }
+                    
+                    logger.info(f"Realtime crawl completed for {platform_name}",
+                               count=len(crawled_content))
+                    
+                except Exception as e:
+                    import traceback
+                    error_info = {
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                        "traceback": traceback.format_exc(),
+                        "platform": platform_name
+                    }
+                    
+                    detailed_errors[platform_name] = error_info
+                    
+                    logger.error(f"Realtime crawl failed for platform {platform_name}", 
+                               error=str(e), error_type=type(e).__name__)
+                    crawl_stats[platform_name] = {"status": "error", "count": 0, "error": str(e)}
+                    continue
+            
+            # 快速AI分析新爬取的内容
+            if all_crawled_content:
+                logger.info("Processing newly crawled content", count=len(all_crawled_content))
+                
+                ai_config = {
+                    'api_url': settings.ai_api_base_url,
+                    'api_key': settings.ai_api_key,
+                    'model': settings.ai_model,
+                    'max_tokens': settings.ai_max_tokens,
+                    'temperature': settings.ai_temperature
+                }
+                ai_client = AIClient(ai_config)
+                
+                for content in all_crawled_content:
+                    try:
+                        # 使用AI客户端分析内容
+                        ai_result = await ai_client.analyze_content(
+                            content=f"{content.title}\n{content.content}",
+                            analysis_type="tge_analysis"
+                        )
+                        
+                        if ai_result:
+                            # 确保ai_result是字典类型
+                            if isinstance(ai_result, str):
+                                try:
+                                    ai_result = json.loads(ai_result)
+                                except json.JSONDecodeError:
+                                    logger.warning("Failed to parse AI result as JSON", result=ai_result)
+                                    ai_result = {"summary": ai_result}
+                            
+                            # 保存到数据库
+                            from ...utils.deduplication import generate_content_hash
+                            
+                            tge_project = TGEProject(
+                                project_name=content.title or f"TGE项目_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+                                content_hash=generate_content_hash(content.content),
+                                raw_content=content.raw_content,
+                                source_platform=content.platform.value,
+                                source_url=content.source_url,
+                                source_user_id=content.author_id,
+                                source_username=content.author_name,
+                                
+                                # AI分析结果
+                                ai_summary=ai_result.get("summary"),
+                                sentiment=ai_result.get("sentiment"),
+                                recommendation=ai_result.get("recommendation"),
+                                risk_level=ai_result.get("risk_level"),
+                                confidence_score=ai_result.get("confidence_score"),
+                                
+                                # 提取的项目信息
+                                token_name=ai_result.get("token_name"),
+                                token_symbol=ai_result.get("token_symbol"),
+                                tge_date=ai_result.get("tge_date"),
+                                
+                                # 状态字段
+                                is_processed=True,
+                                is_valid=True
+                            )
+                            
+                            # 保存到数据库
+                            await TGEProjectCRUD.create(db, tge_project)
+                            
+                            # 构建返回结果
+                            analysis_result = TGEAnalysisResult(
+                                token_name=ai_result.get("token_name"),
+                                token_symbol=ai_result.get("token_symbol"),
+                                ai_summary=ai_result.get("summary"),
+                                sentiment=ai_result.get("sentiment"),
+                                recommendation=ai_result.get("recommendation"),
+                                risk_level=ai_result.get("risk_level"),
+                                confidence_score=ai_result.get("confidence_score"),
+                                tge_date=ai_result.get("tge_date"),
+                                source_platform=content.platform.value,
+                                source_count=1
+                            )
+                            
+                            analysis_results.append(analysis_result)
+                            
+                    except Exception as e:
+                        logger.error("AI analysis failed for realtime content", 
+                                   content_id=content.content_id, error=str(e))
+                        continue
+        
+        # 3. 生成搜索摘要
+        execution_time = time.time() - start_time
+        
+        search_summary = {
+            "keywords": keyword_list,
+            "total_results": len(analysis_results),
+            "cached_results": len(cached_projects),
+            "crawled_results": len(analysis_results) - len(cached_projects),
+            "cache_hours": cache_hours,
+            "crawl_enabled": enable_crawl,
+            "crawl_stats": crawl_stats,
+            "platforms_used": platform_list,
+            "execution_time": execution_time
+        }
+        
+        # 4. 构建响应
+        response_data = TGESearchResponse(
+            analysis_results=analysis_results[:max_count],  # 确保不超过最大数量
+            search_summary=search_summary,
+            execution_time=execution_time,
+            timestamp=datetime.utcnow(),
+            error_details=detailed_errors if detailed_errors else None
+        )
+        
+        # 根据结果情况调整返回消息
+        if detailed_errors:
+            message = f"实时搜索完成，但有{len(detailed_errors)}个平台出现错误。返回{len(analysis_results)}个结果"
+        else:
+            message = f"实时搜索完成，返回{len(analysis_results)}个结果（{len(cached_projects)}个缓存，{len(analysis_results) - len(cached_projects)}个新增）"
+        
+        logger.info("Realtime TGE search completed",
+                   total_results=len(analysis_results),
+                   cached_results=len(cached_projects),
+                   execution_time=execution_time,
+                   errors=len(detailed_errors))
+        
+        return success_response(
+            data=response_data,
+            message=message
+        )
+        
+    except Exception as e:
+        execution_time = time.time() - start_time
+        logger.error("Realtime TGE search failed", 
+                    error=str(e), execution_time=execution_time)
+        raise HTTPException(
+            status_code=500,
+            detail=f"实时TGE搜索失败: {str(e)}"
+        )

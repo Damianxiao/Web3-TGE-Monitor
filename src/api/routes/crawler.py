@@ -559,6 +559,225 @@ async def get_batch_list(
         )
 
 
+@router.post("/batch/sync",
+            response_model=ApiResponse[BatchCrawlStatusResponse],
+            summary="同步批次爬虫任务",
+            description="创建多平台批次爬虫任务并同步等待完成，返回最终聚合结果")
+async def create_batch_crawl_sync(
+    task_request: MultiPlatformCrawlRequest
+):
+    """
+    同步批次爬虫任务
+    
+    与 /batch 端点不同，此端点会：
+    1. 创建批次任务
+    2. 同步等待任务完成
+    3. 返回最终聚合结果
+    
+    适用于需要立即获取结果的场景，无需轮询状态。
+    注意：此端点响应时间较长，建议设置较高的超时时间。
+    """
+    try:
+        logger.info("Creating synchronous batch crawl task", 
+                   platforms=task_request.platforms,
+                   keywords=task_request.keywords,
+                   max_count_per_platform=task_request.max_count_per_platform,
+                   enable_ai_analysis=task_request.enable_ai_analysis)
+        
+        # 转换平台枚举
+        platforms = None
+        if task_request.platforms:
+            platforms = [Platform(p.value) for p in task_request.platforms]
+        
+        # 创建批次爬虫任务
+        batch_id = await batch_crawl_manager.create_batch_crawl(
+            platforms=platforms,
+            keywords=task_request.keywords,
+            max_count_per_platform=task_request.max_count_per_platform,
+            enable_ai_analysis=task_request.enable_ai_analysis
+        )
+        
+        logger.info("Batch created, executing synchronously", batch_id=batch_id)
+        
+        # 同步执行批次爬虫任务
+        execution_result = await batch_crawl_manager.execute_batch(batch_id)
+        
+        if not execution_result:
+            raise HTTPException(
+                status_code=500,
+                detail="批次任务执行失败"
+            )
+        
+        # 获取最终状态
+        final_status = await batch_crawl_manager.get_batch_status(batch_id)
+        
+        if not final_status:
+            raise HTTPException(
+                status_code=500,
+                detail="无法获取批次任务最终状态"
+            )
+        
+        # 转换为响应模型
+        batch_response = BatchCrawlStatusResponse(
+            batch_id=final_status['batch_id'],
+            overall_status=final_status['overall_status'],
+            total_tasks=final_status['total_tasks'],
+            completed_tasks=final_status['completed_tasks'],
+            failed_tasks=final_status['failed_tasks'],
+            overall_progress=final_status['overall_progress'],
+            platform_status=final_status['platform_status'],
+            ai_analysis_status=final_status.get('ai_analysis_status'),
+            total_content_found=final_status['total_content_found'],
+            ai_summary=final_status.get('ai_summary')
+        )
+        
+        logger.info("Synchronous batch crawl completed", 
+                   batch_id=batch_id,
+                   overall_status=final_status['overall_status'],
+                   total_content=final_status['total_content_found'])
+        
+        return success_response(
+            data=batch_response,
+            message=f"同步批次爬虫任务完成，批次ID: {batch_id}"
+        )
+        
+    except ValueError as e:
+        logger.error("Invalid sync batch task parameters", error=str(e))
+        raise HTTPException(
+            status_code=400,
+            detail=f"任务参数错误: {str(e)}"
+        )
+    except Exception as e:
+        logger.error("Failed to create sync batch crawl task", error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail="创建同步批次爬虫任务失败"
+        )
+
+
+@router.get("/batch/{batch_id}/results",
+           response_model=ApiResponse[dict],
+           summary="获取批次聚合结果",
+           description="获取批次任务的详细聚合结果，包括各平台数据和AI分析汇总")
+async def get_batch_results(
+    batch_id: str = Path(..., description="批次ID"),
+    include_raw_data: bool = Query(False, description="是否包含原始数据"),
+    limit_per_platform: int = Query(50, ge=1, le=200, description="每个平台返回的结果数量限制")
+):
+    """
+    获取批次聚合结果
+    
+    提供批次任务的完整聚合视图，包括：
+    - 批次总体状态
+    - 各平台详细结果
+    - AI分析汇总
+    - 关键项目推荐
+    - 统计数据
+    
+    参数说明：
+    - include_raw_data: 是否包含原始爬虫数据，默认false以减少响应大小
+    - limit_per_platform: 每个平台返回的结果数量限制
+    """
+    try:
+        logger.info("Getting batch results", 
+                   batch_id=batch_id,
+                   include_raw_data=include_raw_data,
+                   limit_per_platform=limit_per_platform)
+        
+        # 获取批次状态
+        batch_status = await batch_crawl_manager.get_batch_status(batch_id)
+        
+        if not batch_status:
+            raise HTTPException(
+                status_code=404,
+                detail=f"批次ID {batch_id} 不存在"
+            )
+        
+        # 获取批次任务详细结果
+        batch_results = {}
+        platform_results = {}
+        
+        # 遍历各平台任务获取结果
+        for platform, task_id in batch_status.get('task_ids', {}).items():
+            try:
+                # 获取单个任务的结果
+                task_result = await crawler_manager.get_task_result(task_id)
+                
+                if task_result:
+                    platform_results[platform] = {
+                        "task_id": task_id,
+                        "platform": platform,
+                        "total_count": task_result.total_count,
+                        "success_count": task_result.success_count,
+                        "duplicate_count": task_result.duplicate_count,
+                        "error_count": task_result.error_count,
+                        "execution_time": task_result.execution_time,
+                        "keywords_used": task_result.keywords_used
+                    }
+                    
+                    # 如果需要原始数据，获取项目数据
+                    if include_raw_data:
+                        # 获取该平台的项目数据
+                        platform_projects = await crawl_data_service.get_batch_platform_projects(
+                            batch_id, platform, limit_per_platform
+                        )
+                        platform_results[platform]["projects"] = platform_projects
+                        
+            except Exception as e:
+                logger.warning(f"Failed to get results for platform {platform}", 
+                             task_id=task_id, error=str(e))
+                platform_results[platform] = {
+                    "task_id": task_id,
+                    "platform": platform,
+                    "error": str(e)
+                }
+        
+        # 聚合统计数据
+        total_stats = {
+            "total_count": sum(r.get("total_count", 0) for r in platform_results.values() if "total_count" in r),
+            "success_count": sum(r.get("success_count", 0) for r in platform_results.values() if "success_count" in r),
+            "duplicate_count": sum(r.get("duplicate_count", 0) for r in platform_results.values() if "duplicate_count" in r),
+            "error_count": sum(r.get("error_count", 0) for r in platform_results.values() if "error_count" in r),
+            "platforms_count": len(platform_results),
+            "successful_platforms": len([r for r in platform_results.values() if r.get("success_count", 0) > 0])
+        }
+        
+        # 构建响应数据
+        results_data = {
+            "batch_id": batch_id,
+            "batch_status": batch_status,
+            "platform_results": platform_results,
+            "aggregated_stats": total_stats,
+            "include_raw_data": include_raw_data,
+            "limit_per_platform": limit_per_platform
+        }
+        
+        # 如果启用了AI分析，获取AI分析汇总
+        if batch_status.get('enable_ai_analysis', False):
+            try:
+                ai_summary = await _get_batch_ai_summary(batch_id)
+                results_data["ai_analysis_summary"] = ai_summary
+            except Exception as e:
+                logger.warning("Failed to get AI analysis summary", 
+                             batch_id=batch_id, error=str(e))
+                results_data["ai_analysis_summary"] = {"error": str(e)}
+        
+        return success_response(
+            data=results_data,
+            message=f"成功获取批次 {batch_id} 的聚合结果"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get batch results", 
+                    batch_id=batch_id, error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail="获取批次结果失败"
+        )
+
+
 # 辅助函数
 
 async def _execute_batch_crawl(batch_id: str):
@@ -628,3 +847,111 @@ def _calculate_task_progress(task) -> int:
         return 100
     else:
         return 0
+
+
+async def _get_batch_ai_summary(batch_id: str) -> dict:
+    """
+    获取批次AI分析汇总
+    """
+    try:
+        # 获取批次相关的AI分析数据
+        session = await get_db_session()
+        async with session:
+            from ...database.crud import TGEProjectCRUD
+            
+            # 获取批次相关的项目数据
+            batch_projects = await TGEProjectCRUD.get_batch_projects(session, batch_id)
+            
+            if not batch_projects:
+                return {"message": "没有找到相关项目数据"}
+            
+            # 统计AI分析结果
+            processed_projects = [p for p in batch_projects if p.is_processed]
+            
+            if not processed_projects:
+                return {"message": "没有已处理的项目数据"}
+            
+            # 汇总统计
+            summary = {
+                "total_projects": len(batch_projects),
+                "processed_projects": len(processed_projects),
+                "processing_rate": len(processed_projects) / len(batch_projects) * 100,
+                "investment_recommendations": {},
+                "risk_levels": {},
+                "categories": {},
+                "sentiment_analysis": {
+                    "positive": 0,
+                    "negative": 0,
+                    "neutral": 0
+                },
+                "top_projects": [],
+                "average_scores": {
+                    "potential_score": 0,
+                    "overall_score": 0,
+                    "engagement_score": 0
+                }
+            }
+            
+            # 统计投资建议
+            for project in processed_projects:
+                if project.investment_recommendation:
+                    recommendation = project.investment_recommendation
+                    summary["investment_recommendations"][recommendation] = \
+                        summary["investment_recommendations"].get(recommendation, 0) + 1
+                
+                # 统计风险等级
+                if project.risk_level:
+                    risk_level = project.risk_level
+                    summary["risk_levels"][risk_level] = \
+                        summary["risk_levels"].get(risk_level, 0) + 1
+                
+                # 统计项目分类
+                if project.project_category:
+                    category = project.project_category
+                    summary["categories"][category] = \
+                        summary["categories"].get(category, 0) + 1
+                
+                # 统计情感分析
+                if project.sentiment_label:
+                    sentiment = project.sentiment_label.lower()
+                    if sentiment in ["positive", "bullish", "看涨"]:
+                        summary["sentiment_analysis"]["positive"] += 1
+                    elif sentiment in ["negative", "bearish", "看跌"]:
+                        summary["sentiment_analysis"]["negative"] += 1
+                    else:
+                        summary["sentiment_analysis"]["neutral"] += 1
+            
+            # 计算平均分数
+            if processed_projects:
+                summary["average_scores"]["potential_score"] = \
+                    sum(p.potential_score or 0 for p in processed_projects) / len(processed_projects)
+                summary["average_scores"]["overall_score"] = \
+                    sum(p.overall_score or 0 for p in processed_projects) / len(processed_projects)
+                summary["average_scores"]["engagement_score"] = \
+                    sum(p.engagement_score or 0 for p in processed_projects) / len(processed_projects)
+            
+            # 获取高分项目
+            top_projects = sorted(
+                processed_projects,
+                key=lambda p: p.overall_score or 0,
+                reverse=True
+            )[:5]
+            
+            summary["top_projects"] = [
+                {
+                    "id": p.id,
+                    "project_name": p.project_name,
+                    "token_symbol": p.token_symbol,
+                    "overall_score": p.overall_score,
+                    "investment_recommendation": p.investment_recommendation,
+                    "risk_level": p.risk_level
+                }
+                for p in top_projects
+            ]
+            
+            return summary
+            
+    except Exception as e:
+        logger.error("Failed to get batch AI summary", 
+                    batch_id=batch_id, error=str(e))
+        return {"error": str(e)}
