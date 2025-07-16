@@ -4,7 +4,8 @@
 import os
 from typing import List, Optional
 from pydantic_settings import BaseSettings
-from pydantic import field_validator
+from pydantic import field_validator, validator
+import re
 
 
 class Settings(BaseSettings):
@@ -101,6 +102,45 @@ class Settings(BaseSettings):
     tieba_enabled: bool = True
     tieba_login_method: str = "cookie"
     tieba_headless: bool = True
+    
+    @field_validator('zhihu_headless', 'xhs_headless', 'douyin_headless', 'bilibili_headless', 'weibo_headless', 'kuaishou_headless', 'tieba_headless', mode='before')
+    @classmethod
+    def parse_boolean_with_comments(cls, v):
+        """解析可能带有注释的布尔值"""
+        if isinstance(v, str):
+            # 移除注释部分（# 之后的内容）
+            v = re.sub(r'\s*#.*$', '', v).strip()
+            # 处理常见的字符串布尔值
+            if v.lower() in ['true', '1', 'yes', 'on']:
+                return True
+            elif v.lower() in ['false', '0', 'no', 'off']:
+                return False
+        return v
+    
+    @field_validator('zhihu_enabled', 'xhs_enabled', 'douyin_enabled', 'bilibili_enabled', 'weibo_enabled', 'kuaishou_enabled', 'tieba_enabled', mode='before')
+    @classmethod
+    def parse_enabled_with_comments(cls, v):
+        """解析可能带有注释的启用状态"""
+        if isinstance(v, str):
+            # 移除注释部分（# 之后的内容）
+            v = re.sub(r'\s*#.*$', '', v).strip()
+            # 处理常见的字符串布尔值
+            if v.lower() in ['true', '1', 'yes', 'on']:
+                return True
+            elif v.lower() in ['false', '0', 'no', 'off']:
+                return False
+        return v
+    
+    @field_validator('zhihu_search_type', 'xhs_search_type', 'weibo_search_type', 'zhihu_login_method', 'xhs_login_method', 'douyin_login_method', 'bilibili_login_method', 'weibo_login_method', 'kuaishou_login_method', 'tieba_login_method', mode='before')
+    @classmethod
+    def parse_string_with_comments(cls, v):
+        """解析可能带有注释的字符串值"""
+        if isinstance(v, str):
+            # 移除注释部分（# 之后的内容）
+            v = re.sub(r'\s*#.*$', '', v).strip()
+            # 移除引号
+            v = v.strip('"\'')
+        return v
     
     @field_validator('mediacrawler_path')
     @classmethod

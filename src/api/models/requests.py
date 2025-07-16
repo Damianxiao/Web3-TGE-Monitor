@@ -15,6 +15,9 @@ class PlatformType(str, Enum):
     DOUYIN = "douyin"
     WEIBO = "weibo"
     BILIBILI = "bilibili"
+    ZHIHU = "zhihu"
+    KUAISHOU = "kuaishou"
+    TIEBA = "tieba"
 
 
 class ProjectCategory(str, Enum):

@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 import structlog
 
-from crawler.models import RawContent, CrawlTask, CrawlResult, Platform
+from .models import RawContent, CrawlTask, CrawlResult, Platform
 
 logger = structlog.get_logger()
 

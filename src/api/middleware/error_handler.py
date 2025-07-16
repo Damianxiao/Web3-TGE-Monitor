@@ -169,3 +169,8 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
             status_code=status_code,
             content=json.loads(json.dumps(error_response.dict(exclude_none=True), cls=CustomJSONEncoder))
         )
+
+
+def add_error_handlers(app):
+    """添加错误处理中间件到FastAPI应用"""
+    app.add_middleware(ErrorHandlerMiddleware)

@@ -104,3 +104,8 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         
         # 返回直接连接IP
         return request.client.host if request.client else "unknown"
+
+
+def add_logging_middleware(app):
+    """添加日志中间件到FastAPI应用"""
+    app.add_middleware(LoggingMiddleware)
