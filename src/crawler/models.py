@@ -32,6 +32,8 @@ class Platform(str, Enum):
     WEIBO = "weibo"      # 微博
     BILIBILI = "bilibili" # B站
     ZHIHU = "zhihu"      # 知乎
+    KUAISHOU = "kuaishou" # 快手
+    TIEBA = "tieba"      # 百度贴吧
     
 
 class RawContent(BaseModel):
@@ -66,8 +68,10 @@ class RawContent(BaseModel):
     collect_count: Optional[int] = 0
     
     # 媒体资源
-    image_urls: List[str] = []
-    video_urls: List[str] = []
+    images: List[str] = []     # 图片URLs (新名称)
+    videos: List[str] = []     # 视频URLs (新名称)
+    image_urls: List[str] = []  # 向后兼容
+    video_urls: List[str] = []  # 向后兼容
     
     # 标签和分类
     tags: List[str] = []
@@ -81,6 +85,11 @@ class RawContent(BaseModel):
     
     # 平台特有数据
     platform_metadata: Dict[str, Any] = {}
+    platform_specific: Dict[str, Any] = {}  # 新名称
+    
+    # 附加字段
+    engagement_stats: Dict[str, Any] = {}   # 互动统计
+    video_duration: Optional[int] = None    # 视频时长（秒）
     
     # 爬取元信息
     source_keywords: List[str] = []

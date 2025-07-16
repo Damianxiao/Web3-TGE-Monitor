@@ -179,6 +179,40 @@ class PlatformFactory:
                     'max_retries': 3,
                     'backoff_factor': 2.0
                 }
+            },
+            Platform.KUAISHOU: {
+                'mediacrawler_path': settings.mediacrawler_path,
+                'kuaishou_cookie': getattr(settings, 'kuaishou_cookie', ''),
+                'kuaishou_max_pages': getattr(settings, 'kuaishou_max_pages', 10),
+                'kuaishou_rate_limit': getattr(settings, 'kuaishou_rate_limit', 60),
+                'kuaishou_enabled': getattr(settings, 'kuaishou_enabled', True),
+                'kuaishou_login_method': getattr(settings, 'kuaishou_login_method', 'cookie'),
+                'kuaishou_headless': getattr(settings, 'kuaishou_headless', True),
+                'rate_limit': {
+                    'requests_per_minute': 20,
+                    'delay_between_requests': 3.0
+                },
+                'retry': {
+                    'max_retries': 3,
+                    'backoff_factor': 2.0
+                }
+            },
+            Platform.TIEBA: {
+                'mediacrawler_path': settings.mediacrawler_path,
+                'tieba_cookie': getattr(settings, 'tieba_cookie', ''),
+                'tieba_max_pages': getattr(settings, 'tieba_max_pages', 10),
+                'tieba_rate_limit': getattr(settings, 'tieba_rate_limit', 60),
+                'tieba_enabled': getattr(settings, 'tieba_enabled', True),
+                'tieba_login_method': getattr(settings, 'tieba_login_method', 'cookie'),
+                'tieba_headless': getattr(settings, 'tieba_headless', True),
+                'rate_limit': {
+                    'requests_per_minute': 25,
+                    'delay_between_requests': 2.5
+                },
+                'retry': {
+                    'max_retries': 3,
+                    'backoff_factor': 2.0
+                }
             }
         }
         
@@ -231,6 +265,22 @@ def auto_register_platforms():
         logger.info("Platform registered", platform="bilibili")
     except ImportError as e:
         logger.warning("Failed to register Bilibili platform", error=str(e))
+    
+    # 注册快手平台
+    try:
+        from .platforms.kuaishou_platform import KuaishouPlatform
+        PlatformFactory.register(Platform.KUAISHOU, KuaishouPlatform)
+        logger.info("Platform registered", platform="kuaishou")
+    except ImportError as e:
+        logger.warning("Failed to register Kuaishou platform", error=str(e))
+    
+    # 注册贴吧平台
+    try:
+        from .platforms.tieba_platform import TiebaPlatform
+        PlatformFactory.register(Platform.TIEBA, TiebaPlatform)
+        logger.info("Platform registered", platform="tieba")
+    except ImportError as e:
+        logger.warning("Failed to register Tieba platform", error=str(e))
     
     # 可以继续添加其他平台的自动注册
     # try:

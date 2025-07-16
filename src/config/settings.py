@@ -68,6 +68,40 @@ class Settings(BaseSettings):
     bilibili_login_method: str = "cookie"
     bilibili_headless: bool = True
     
+    # Weibo (微博) 平台配置
+    weibo_cookie: str = ""
+    weibo_search_type: str = "综合"
+    weibo_max_pages: int = 10
+    weibo_rate_limit: int = 60
+    weibo_enabled: bool = True
+    weibo_login_method: str = "cookie"
+    weibo_headless: bool = True
+    
+    # Zhihu (知乎) 平台配置
+    zhihu_cookie: str = ""
+    zhihu_search_type: str = "综合"
+    zhihu_max_pages: int = 10
+    zhihu_rate_limit: int = 60
+    zhihu_enabled: bool = True
+    zhihu_login_method: str = "cookie"
+    zhihu_headless: bool = True
+    
+    # Kuaishou (快手) 平台配置
+    kuaishou_cookie: str = ""
+    kuaishou_max_pages: int = 10
+    kuaishou_rate_limit: int = 60
+    kuaishou_enabled: bool = True
+    kuaishou_login_method: str = "cookie"
+    kuaishou_headless: bool = True
+    
+    # Tieba (百度贴吧) 平台配置
+    tieba_cookie: str = ""
+    tieba_max_pages: int = 10
+    tieba_rate_limit: int = 60
+    tieba_enabled: bool = True
+    tieba_login_method: str = "cookie"
+    tieba_headless: bool = True
+    
     @field_validator('mediacrawler_path')
     @classmethod
     def validate_mediacrawler_path(cls, v):
