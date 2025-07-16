@@ -120,6 +120,37 @@ class CrawlTaskRequest(BaseModel):
         return v
 
 
+class MultiPlatformCrawlRequest(BaseModel):
+    """多平台爬虫任务请求模型"""
+    platforms: Optional[List[PlatformType]] = Field(
+        None,
+        description="目标平台列表，空则爬取所有可用平台",
+        max_items=10
+    )
+    keywords: Optional[List[str]] = Field(
+        None, 
+        description="搜索关键词列表，空则使用默认关键词",
+        max_items=10
+    )
+    max_count_per_platform: int = Field(
+        20, 
+        ge=1, 
+        le=100, 
+        description="每个平台最大爬取数量，范围1-100"
+    )
+    enable_ai_analysis: bool = Field(True, description="是否启用AI分析和总结")
+    priority: str = Field("normal", description="任务优先级（low/normal/high）")
+    
+    @validator('keywords')
+    def validate_keywords(cls, v):
+        if v is not None:
+            # 过滤空关键词
+            v = [kw.strip() for kw in v if kw.strip()]
+            if not v:
+                return None
+        return v
+
+
 class CrawlTaskResponse(BaseModel):
     """爬虫任务响应模型"""
     task_id: str = Field(..., description="任务ID")
@@ -132,6 +163,33 @@ class CrawlTaskResponse(BaseModel):
     completed_at: Optional[datetime] = Field(None, description="完成时间")
     progress: int = Field(0, ge=0, le=100, description="任务进度百分比")
     error_message: Optional[str] = Field(None, description="错误信息")
+
+
+class MultiPlatformCrawlResponse(BaseModel):
+    """多平台爬虫响应模型"""
+    batch_id: str = Field(..., description="批次ID")
+    platforms: List[PlatformType] = Field(..., description="爬取的平台列表")
+    task_ids: List[str] = Field(..., description="各平台任务ID列表")
+    total_tasks: int = Field(..., description="总任务数")
+    keywords: List[str] = Field(..., description="使用的关键词")
+    max_count_per_platform: int = Field(..., description="每平台最大爬取数量")
+    enable_ai_analysis: bool = Field(..., description="是否启用AI分析")
+    created_at: datetime = Field(..., description="创建时间")
+    overall_status: str = Field("pending", description="整体状态")
+
+
+class BatchCrawlStatusResponse(BaseModel):
+    """批次爬虫状态响应模型"""
+    batch_id: str = Field(..., description="批次ID")
+    overall_status: str = Field(..., description="整体状态")
+    total_tasks: int = Field(..., description="总任务数")
+    completed_tasks: int = Field(..., description="已完成任务数")
+    failed_tasks: int = Field(..., description="失败任务数")
+    overall_progress: int = Field(..., description="整体进度百分比")
+    platform_status: Dict[str, Dict] = Field(..., description="各平台状态详情")
+    ai_analysis_status: Optional[str] = Field(None, description="AI分析状态")
+    total_content_found: int = Field(0, description="总共找到的内容数")
+    ai_summary: Optional[str] = Field(None, description="AI生成的内容总结")
 
 
 class CrawlResultResponse(BaseModel):

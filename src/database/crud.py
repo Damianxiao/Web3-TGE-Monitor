@@ -17,17 +17,18 @@ class TGEProjectCRUD:
     """TGE项目数据操作"""
     
     @staticmethod
-    async def create(session: AsyncSession, project: TGEProject) -> Optional[TGEProject]:
+    async def create(session: AsyncSession, project_data: Dict[str, Any]) -> Optional[TGEProject]:
         """创建新的TGE项目记录"""
         try:
+            project = TGEProject(**project_data)
             session.add(project)
             await session.commit()
             await session.refresh(project)
-            logger.info("TGE project created", project_id=project.id, title=project.title)
+            logger.info("TGE project created", project_id=project.id, project_name=project.project_name)
             return project
         except IntegrityError:
             await session.rollback()
-            logger.warning("Duplicate content hash detected", content_hash=project.content_hash)
+            logger.warning("Duplicate content hash detected", content_hash=project_data.get('content_hash'))
             return None
         except Exception as e:
             await session.rollback()

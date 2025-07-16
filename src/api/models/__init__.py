@@ -17,6 +17,9 @@ from .requests import (
     CrawlTaskRequest,
     CrawlTaskResponse,
     CrawlResultResponse,
+    MultiPlatformCrawlRequest,
+    MultiPlatformCrawlResponse,
+    BatchCrawlStatusResponse,
     
     # AI处理请求
     AIProcessRequest,
@@ -55,6 +58,7 @@ __all__ = [
     # 请求模型
     'PaginationParams',
     'CrawlTaskRequest',
+    'MultiPlatformCrawlRequest',
     'AIProcessRequest',
     'BatchAIProcessRequest',
     'ProjectSearchRequest',
@@ -68,6 +72,8 @@ __all__ = [
     'HealthCheckResponse',
     'CrawlTaskResponse',
     'CrawlResultResponse',
+    'MultiPlatformCrawlResponse',
+    'BatchCrawlStatusResponse',
     'AIAnalysisResponse',
     'ProjectSummaryResponse',
     'ProjectDetailResponse',

@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     # AI API配置
     ai_api_base_url: str = "api.gpt.ge"
     ai_api_key: str = ""
-    ai_model: str = "gpt-4o"
+    ai_model: str = "gpt-4o-mini"
     ai_max_tokens: int = 1688
     ai_temperature: float = 0.5
     

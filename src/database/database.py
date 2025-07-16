@@ -28,17 +28,9 @@ async_session_factory = async_sessionmaker(
 )
 
 
-async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_db_session() -> AsyncSession:
     """获取数据库会话"""
-    async with async_session_factory() as session:
-        try:
-            yield session
-        except SQLAlchemyError as e:
-            logger.error("Database session error", error=str(e))
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+    return async_session_factory()
 
 
 async def init_database() -> None:
@@ -57,7 +49,8 @@ async def check_database_connection() -> bool:
     """检查数据库连接"""
     try:
         async with async_session_factory() as session:
-            await session.execute("SELECT 1")
+            from sqlalchemy import text
+            await session.execute(text("SELECT 1"))
             logger.info("Database connection successful")
             return True
     except Exception as e:

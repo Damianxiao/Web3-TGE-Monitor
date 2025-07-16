@@ -17,7 +17,8 @@ def get_request_id(request: Request) -> Optional[str]:
 
 async def get_db():
     """获取数据库会话"""
-    async for session in get_db_session():
+    session = await get_db_session()
+    async with session:
         yield session
 
 

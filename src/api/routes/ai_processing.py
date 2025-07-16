@@ -46,7 +46,8 @@ async def process_single_project(
                    force_reprocess=request.force_reprocess)
         
         # 检查项目是否存在
-        async with get_db_session() as session:
+        session = await get_db_session()
+        async with session:
             project = await TGEProjectCRUD.get_by_id(session, request.project_id)
             if not project:
                 raise HTTPException(

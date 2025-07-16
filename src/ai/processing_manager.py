@@ -118,7 +118,8 @@ AI处理流程管理器
             logger.info("Processing single content", project_id=project_id)
             
             # 获取项目数据
-            async with get_db_session() as session:
+            session = await get_db_session()
+            async with session:
                 project = await TGEProjectCRUD.get_by_id(session, project_id)
                 if not project:
                     return {'success': False, 'error': 'Project not found'}
@@ -324,7 +325,8 @@ AI处理流程管理器
     async def get_processing_statistics(self) -> Dict[str, Any]:
         """获取处理统计信息"""
         try:
-            async with get_db_session() as session:
+            session = await get_db_session()
+            async with session:
                 # 统计已处理和未处理的内容
                 total_projects = await TGEProjectCRUD.count_all(session)
                 processed_projects = await TGEProjectCRUD.count_processed(session)

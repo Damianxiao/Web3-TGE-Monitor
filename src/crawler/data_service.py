@@ -97,7 +97,8 @@ class CrawlDataService:
             content_hash = deduplication_service.generate_content_hash(full_text)
             
             # 3. 检查是否重复
-            async with get_db_session() as session:
+            session = await get_db_session()
+            async with session:
                 existing = await TGEProjectCRUD.get_by_content_hash(session, content_hash)
                 if existing:
                     logger.debug("Duplicate content skipped",
@@ -138,7 +139,8 @@ class CrawlDataService:
             }
             
             # 6. 保存到数据库
-            async with get_db_session() as session:
+            session = await get_db_session()
+            async with session:
                 project = await TGEProjectCRUD.create(session, project_data)
                 if project:
                     logger.info("Content saved to database",
@@ -248,7 +250,8 @@ class CrawlDataService:
                 'execution_time': result.execution_time
             }
             
-            async with get_db_session() as session:
+            session = await get_db_session()
+            async with session:
                 await CrawlerLogCRUD.create_log(session, log_data)
                 
         except Exception as e:
@@ -257,7 +260,8 @@ class CrawlDataService:
     async def get_unprocessed_contents(self, limit: int = 50) -> List[Dict[str, Any]]:
         """获取未处理的内容（等待AI处理）"""
         try:
-            async with get_db_session() as session:
+            session = await get_db_session()
+            async with session:
                 projects = await TGEProjectCRUD.get_unprocessed(session, limit)
                 
                 return [
@@ -278,7 +282,8 @@ class CrawlDataService:
     async def mark_content_processed(self, project_id: int, ai_analysis: Dict[str, Any]) -> bool:
         """标记内容已处理并保存AI分析结果"""
         try:
-            async with get_db_session() as session:
+            session = await get_db_session()
+            async with session:
                 success = await TGEProjectCRUD.update_ai_analysis(
                     session, project_id, ai_analysis
                 )

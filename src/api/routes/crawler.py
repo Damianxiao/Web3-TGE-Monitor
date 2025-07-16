@@ -10,10 +10,12 @@ import asyncio
 from ..models import (
     ApiResponse, PaginatedResponse,
     CrawlTaskRequest, CrawlTaskResponse, CrawlResultResponse,
+    MultiPlatformCrawlRequest, MultiPlatformCrawlResponse, BatchCrawlStatusResponse,
     TaskStatus, PlatformType,
     success_response, error_response
 )
 from ...crawler import crawler_manager, Platform
+from ...crawler.batch_manager import batch_crawl_manager
 from ...crawler.data_service import crawl_data_service
 from ...ai import ai_processing_manager
 
@@ -356,7 +358,228 @@ async def cancel_task(
         )
 
 
+@router.post("/batch",
+            response_model=ApiResponse[MultiPlatformCrawlResponse],
+            summary="创建多平台批次爬虫任务",
+            description="创建多平台爬虫任务，默认爬取所有可用平台并进行AI分析")
+async def create_batch_crawl_task(
+    task_request: MultiPlatformCrawlRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    创建多平台批次爬虫任务
+    
+    支持的平台：
+    - xhs: 小红书
+    - kuaishou: 快手
+    - weibo: 微博
+    - zhihu: 知乎
+    - douyin: 抖音
+    - bilibili: B站
+    - tieba: 百度贴吧
+    
+    特性：
+    - 默认爬取所有可用平台
+    - 自动AI分析和总结
+    - 并行执行提高效率
+    """
+    try:
+        logger.info("Creating batch crawl task", 
+                   platforms=task_request.platforms,
+                   keywords=task_request.keywords,
+                   max_count_per_platform=task_request.max_count_per_platform,
+                   enable_ai_analysis=task_request.enable_ai_analysis)
+        
+        # 转换平台枚举
+        platforms = None
+        if task_request.platforms:
+            platforms = [Platform(p.value) for p in task_request.platforms]
+        
+        # 创建批次爬虫任务
+        batch_id = await batch_crawl_manager.create_batch_crawl(
+            platforms=platforms,
+            keywords=task_request.keywords,
+            max_count_per_platform=task_request.max_count_per_platform,
+            enable_ai_analysis=task_request.enable_ai_analysis
+        )
+        
+        # 获取批次状态
+        batch_status = await batch_crawl_manager.get_batch_status(batch_id)
+        
+        if not batch_status:
+            raise HTTPException(
+                status_code=500,
+                detail="批次任务创建失败"
+            )
+        
+        # 添加后台任务：执行批次爬虫
+        background_tasks.add_task(
+            _execute_batch_crawl,
+            batch_id
+        )
+        
+        # 转换为响应模型
+        batch_response = MultiPlatformCrawlResponse(
+            batch_id=batch_status['batch_id'],
+            platforms=[PlatformType(p.value) for p in batch_status['platforms']],
+            task_ids=batch_status['task_ids'],
+            total_tasks=batch_status['total_tasks'],
+            keywords=batch_status['keywords'] or [],
+            max_count_per_platform=batch_status['max_count_per_platform'],
+            enable_ai_analysis=batch_status['enable_ai_analysis'],
+            created_at=batch_status['created_at'],
+            overall_status=batch_status['overall_status']
+        )
+        
+        return success_response(
+            data=batch_response,
+            message=f"批次爬虫任务创建成功，批次ID: {batch_id}"
+        )
+        
+    except ValueError as e:
+        logger.error("Invalid batch task parameters", error=str(e))
+        raise HTTPException(
+            status_code=400,
+            detail=f"任务参数错误: {str(e)}"
+        )
+    except Exception as e:
+        logger.error("Failed to create batch crawl task", error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail="创建批次爬虫任务失败"
+        )
+
+
+@router.get("/batch/{batch_id}",
+           response_model=ApiResponse[BatchCrawlStatusResponse],
+           summary="获取批次任务状态",
+           description="获取多平台批次爬虫任务的详细状态和进度")
+async def get_batch_status(
+    batch_id: str = Path(..., description="批次ID")
+):
+    """
+    获取批次爬虫任务状态
+    
+    返回批次的实时状态，包括：
+    - 各平台任务进度
+    - 整体执行状态
+    - AI分析状态
+    - 内容统计信息
+    """
+    try:
+        logger.debug("Getting batch status", batch_id=batch_id)
+        
+        # 获取批次状态
+        batch_status = await batch_crawl_manager.get_batch_status(batch_id)
+        
+        if not batch_status:
+            raise HTTPException(
+                status_code=404,
+                detail=f"批次ID {batch_id} 不存在"
+            )
+        
+        # 转换为响应模型
+        status_response = BatchCrawlStatusResponse(
+            batch_id=batch_status['batch_id'],
+            overall_status=batch_status['overall_status'],
+            total_tasks=batch_status['total_tasks'],
+            completed_tasks=batch_status['completed_tasks'],
+            failed_tasks=batch_status['failed_tasks'],
+            overall_progress=batch_status['overall_progress'],
+            platform_status=batch_status['platform_status'],
+            ai_analysis_status=batch_status.get('ai_analysis_status'),
+            total_content_found=batch_status['total_content_found'],
+            ai_summary=batch_status.get('ai_summary')
+        )
+        
+        return success_response(
+            data=status_response,
+            message="成功获取批次任务状态"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get batch status", 
+                    batch_id=batch_id, error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail="获取批次任务状态失败"
+        )
+
+
+@router.get("/batch",
+           response_model=ApiResponse[List[BatchCrawlStatusResponse]],
+           summary="获取批次任务列表",
+           description="获取所有批次爬虫任务的列表")
+async def get_batch_list(
+    limit: int = Query(20, ge=1, le=100, description="返回数量限制")
+):
+    """
+    获取批次爬虫任务列表
+    
+    返回最近的批次任务，按创建时间降序排列。
+    """
+    try:
+        logger.info("Getting batch list", limit=limit)
+        
+        # 获取批次列表
+        batches = await batch_crawl_manager.list_batches(limit=limit)
+        
+        # 转换为响应模型列表
+        batch_responses = []
+        for batch in batches:
+            # 计算整体进度
+            batch_status = await batch_crawl_manager.get_batch_status(batch['batch_id'])
+            
+            batch_response = BatchCrawlStatusResponse(
+                batch_id=batch['batch_id'],
+                overall_status=batch['overall_status'],
+                total_tasks=batch['total_tasks'],
+                completed_tasks=batch['completed_tasks'],
+                failed_tasks=batch['failed_tasks'],
+                overall_progress=batch_status['overall_progress'] if batch_status else 0,
+                platform_status=batch['platform_status'],
+                ai_analysis_status=batch.get('ai_analysis_status'),
+                total_content_found=batch['total_content_found'],
+                ai_summary=batch.get('ai_summary')
+            )
+            batch_responses.append(batch_response)
+        
+        return success_response(
+            data=batch_responses,
+            message=f"成功获取{len(batch_responses)}个批次任务"
+        )
+        
+    except Exception as e:
+        logger.error("Failed to get batch list", error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail="获取批次任务列表失败"
+        )
+
+
 # 辅助函数
+
+async def _execute_batch_crawl(batch_id: str):
+    """
+    在后台执行批次爬虫任务
+    """
+    try:
+        logger.info("Starting background batch crawl", batch_id=batch_id)
+        
+        # 执行批次爬虫任务
+        result = await batch_crawl_manager.execute_batch(batch_id)
+        
+        logger.info("Background batch crawl completed", 
+                   batch_id=batch_id,
+                   overall_status=result['overall_status'],
+                   total_content=result['total_content_found'])
+        
+    except Exception as e:
+        logger.error("Background batch crawl failed", 
+                    batch_id=batch_id, error=str(e))
+
 
 async def _execute_crawl_and_ai_processing(task_id: str):
     """
