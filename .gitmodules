@@ -1,3 +1,0 @@
-[submodule "external/MediaCrawler"]
-	path = external/MediaCrawler
-	url = git@github.com:NanmiCoder/MediaCrawler.git
