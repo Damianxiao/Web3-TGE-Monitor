@@ -142,7 +142,9 @@ class MediaCrawlerZhihuIntegration:
             config.CRAWLER_TYPE = "search"
             config.KEYWORDS = keywords
             config.SAVE_DATA_OPTION = "json"
-            config.HEADLESS = True
+            # 从环境变量读取headless设置，默认为True（无头模式）
+            headless_setting = os.getenv('ZHIHU_HEADLESS', 'true').lower() == 'true'
+            config.HEADLESS = headless_setting
             config.CRAWLER_MAX_NOTES_COUNT = max_results
             config.ENABLE_GET_COMMENTS = False  # 禁用评论以提高速度
             config.COOKIES = self.zhihu_cookie

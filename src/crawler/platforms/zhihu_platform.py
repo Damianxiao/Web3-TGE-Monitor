@@ -8,12 +8,8 @@ import structlog
 import re
 import html
 
-from crawler.base_platform import AbstractPlatform, PlatformError
-from crawler.models import RawContent, Platform, ContentType
-from crawler.platforms.mediacrawler_zhihu_integration import (
-    MediaCrawlerZhihuIntegration, 
-    create_mediacrawler_integration
-)
+from ..base_platform import AbstractPlatform, PlatformError
+from ..models import RawContent, Platform, ContentType
 
 logger = structlog.get_logger()
 
@@ -39,10 +35,15 @@ class ZhihuPlatform(AbstractPlatform):
         """获取平台名称"""
         return self.platform_name
     
-    async def _get_mediacrawler_integration(self) -> MediaCrawlerZhihuIntegration:
+    async def _get_mediacrawler_integration(self):
         """获取或创建MediaCrawler集成实例"""
         if self._mediacrawler_integration is None:
             try:
+                # 本地导入避免循环导入
+                from .mediacrawler_zhihu_integration import (
+                    MediaCrawlerZhihuIntegration, 
+                    create_mediacrawler_integration
+                )
                 self._mediacrawler_integration = await create_mediacrawler_integration()
                 self.logger.info("MediaCrawler integration initialized successfully")
             except Exception as e:
@@ -51,9 +52,63 @@ class ZhihuPlatform(AbstractPlatform):
         
         return self._mediacrawler_integration
     
+    async def crawl(
+        self, 
+        keywords: List[str], 
+        max_count: int = 50,
+        **kwargs
+    ) -> List[RawContent]:
+        """
+        爬取知乎内容
+        
+        Args:
+            keywords: 搜索关键词列表
+            max_count: 最大爬取数量
+            **kwargs: 其他参数
+            
+        Returns:
+            List[RawContent]: 原始内容列表
+        """
+        # 验证关键词
+        validated_keywords = await self.validate_keywords(keywords)
+        
+        self.logger.info(f"Starting zhihu crawl: keywords={validated_keywords}, max_count={max_count}")
+        
+        try:
+            # 获取MediaCrawler集成实例
+            integration = await self._get_mediacrawler_integration()
+            
+            all_contents = []
+            
+            # 对每个关键词进行搜索
+            for keyword in validated_keywords:
+                try:
+                    # 执行单个关键词搜索
+                    raw_results = await integration.search_content(keyword, max_count)
+                    
+                    # 转换为RawContent格式
+                    for item in raw_results:
+                        content = self._convert_to_raw_content(item, keyword)
+                        if content:
+                            all_contents.append(content)
+                            
+                except Exception as e:
+                    self.logger.warning(f"Failed to search for keyword '{keyword}': {e}")
+                    continue
+            
+            # 过滤内容
+            filtered_contents = await self.filter_content(all_contents)
+            
+            self.logger.info(f"Zhihu crawl completed: {len(filtered_contents)} contents found")
+            return filtered_contents[:max_count]  # 限制最终结果数量
+            
+        except Exception as e:
+            self.logger.error(f"Zhihu crawl failed: {e}")
+            raise PlatformError(self.platform_name.value, f"Crawl failed: {e}")
+    
     async def search(self, keywords: str, max_results: int = 50) -> List[RawContent]:
         """
-        搜索知乎内容
+        搜索知乎内容（向后兼容方法）
         
         Args:
             keywords: 搜索关键词
@@ -62,28 +117,9 @@ class ZhihuPlatform(AbstractPlatform):
         Returns:
             List[RawContent]: 原始内容列表
         """
-        self.logger.info(f"Starting zhihu search: keywords='{keywords}', max_results={max_results}")
-        
-        try:
-            # 获取MediaCrawler集成实例
-            integration = await self._get_mediacrawler_integration()
-            
-            # 执行搜索
-            raw_results = await integration.search_content(keywords, max_results)
-            
-            # 转换为RawContent格式
-            contents = []
-            for item in raw_results:
-                content = self._convert_to_raw_content(item, keywords)
-                if content:
-                    contents.append(content)
-            
-            self.logger.info(f"Zhihu search completed: {len(contents)} contents found")
-            return contents
-            
-        except Exception as e:
-            self.logger.error(f"Zhihu search failed: {e}")
-            raise PlatformError(self.platform_name.value, f"Search failed: {e}")
+        # 将字符串转换为列表
+        keyword_list = [keywords] if isinstance(keywords, str) else keywords
+        return await self.crawl(keyword_list, max_results)
     
     async def get_content_details(self, content_id: str) -> Optional[RawContent]:
         """
@@ -122,7 +158,7 @@ class ZhihuPlatform(AbstractPlatform):
         
         Args:
             item: MediaCrawler数据项
-            source_keywords: 搜索关键词
+            source_keywords: 搜索关键词（字符串）
             
         Returns:
             Optional[RawContent]: 转换后的内容或None
@@ -140,6 +176,14 @@ class ZhihuPlatform(AbstractPlatform):
             
             # 提取互动数据
             stats = item.get('stats', {})
+            
+            # 处理source_keywords - 确保它是列表格式
+            if isinstance(source_keywords, str):
+                keyword_list = [source_keywords] if source_keywords else []
+            elif isinstance(source_keywords, list):
+                keyword_list = source_keywords
+            else:
+                keyword_list = []
             
             # 创建RawContent对象
             raw_content = RawContent(
@@ -164,7 +208,7 @@ class ZhihuPlatform(AbstractPlatform):
                 hashtags=[],  # 可以后续从内容中提取
                 image_urls=[],  # 可以后续从内容中提取
                 video_urls=[],  # 可以后续从内容中提取
-                source_keywords=[source_keywords] if source_keywords else [],
+                source_keywords=keyword_list,
                 platform_metadata={
                     'source_keywords': source_keywords or item.get('metadata', {}).get('source_keyword', ''),
                     'question_id': item.get('metadata', {}).get('question_id', ''),
@@ -255,24 +299,6 @@ class ZhihuPlatform(AbstractPlatform):
         except (ValueError, TypeError, OSError):
             self.logger.warning(f"Failed to convert timestamp: {timestamp}")
             return None
-    
-    async def crawl(self, **kwargs) -> List[RawContent]:
-        """
-        通用爬取方法 - 实现AbstractPlatform接口
-        
-        Args:
-            **kwargs: 爬取参数，支持keywords和max_results
-            
-        Returns:
-            List[RawContent]: 原始内容列表
-        """
-        keywords = kwargs.get('keywords', '')
-        max_results = kwargs.get('max_results', 50)
-        
-        if not keywords:
-            raise ValueError("Keywords are required for crawling")
-        
-        return await self.search(keywords, max_results)
     
     async def is_available(self) -> bool:
         """

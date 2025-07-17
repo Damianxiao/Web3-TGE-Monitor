@@ -90,7 +90,9 @@ class DouyinPlatform(AbstractPlatform):
             if not hasattr(config, 'CUSTOM_WORDS'):
                 setattr(config, 'CUSTOM_WORDS', {})
             if not hasattr(config, 'HEADLESS'):
-                setattr(config, 'HEADLESS', True)
+                # 从环境变量读取headless设置，默认为True（无头模式）
+                headless_setting = os.getenv('DOUYIN_HEADLESS', 'true').lower() == 'true'
+                setattr(config, 'HEADLESS', headless_setting)
             if not hasattr(config, 'SAVE_LOGIN_STATE'):
                 setattr(config, 'SAVE_LOGIN_STATE', True)
             if not hasattr(config, 'USER_DATA_DIR'):
