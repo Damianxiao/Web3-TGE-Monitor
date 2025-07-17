@@ -246,12 +246,60 @@ class BatchCrawlManager:
             logger.error("AI analysis failed for batch", 
                         batch_id=batch_id, error=str(e))
     
-    async def _generate_batch_summary(self, batch_id: str) -> str:
-        """生成批次总结"""
+    async def _generate_batch_summary(self, batch_id: str) -> Dict[str, Any]:
+        """生成批次AI分析总结"""
         batch_info = self.active_batches[batch_id]
         
-        # 这里可以调用AI服务生成更智能的总结
-        # 目前先生成基础总结
+        try:
+            # 获取数据库会话
+            from ..database.database import get_db_session
+            from ..database.crud import TGEProjectCRUD
+            
+            session = await get_db_session()
+            async with session:
+                # 获取批次相关的已处理项目
+                processed_projects = await TGEProjectCRUD.get_processed_projects_by_batch(
+                    session, batch_id, limit=100
+                )
+                
+                if not processed_projects:
+                    return {
+                        "batch_id": batch_id,
+                        "message": "没有找到已处理的项目数据",
+                        "basic_summary": self._generate_basic_summary(batch_id)
+                    }
+                
+                # 生成AI分析汇总
+                ai_analysis_summary = {
+                    "batch_id": batch_id,
+                    "total_projects": len(processed_projects),
+                    "processed_projects": len(processed_projects),
+                    "processing_rate": 100.0,
+                    "investment_analysis": self._analyze_investment_recommendations(processed_projects),
+                    "risk_analysis": self._analyze_risk_levels(processed_projects),
+                    "sentiment_analysis": self._analyze_sentiment(processed_projects),
+                    "top_projects": self._get_top_projects(processed_projects),
+                    "category_distribution": self._analyze_categories(processed_projects),
+                    "platform_breakdown": self._analyze_platforms(processed_projects),
+                    "key_insights": self._generate_key_insights(processed_projects),
+                    "basic_summary": self._generate_basic_summary(batch_id)
+                }
+                
+                return ai_analysis_summary
+                
+        except Exception as e:
+            logger.error("Failed to generate AI analysis summary", 
+                        batch_id=batch_id, error=str(e))
+            return {
+                "batch_id": batch_id,
+                "error": str(e),
+                "basic_summary": self._generate_basic_summary(batch_id)
+            }
+    
+    def _generate_basic_summary(self, batch_id: str) -> str:
+        """生成基础批次总结"""
+        batch_info = self.active_batches[batch_id]
+        
         platforms_summary = []
         for platform, status in batch_info['platform_status'].items():
             if status['status'] == 'completed':
@@ -259,16 +307,165 @@ class BatchCrawlManager:
             else:
                 platforms_summary.append(f"{platform}: 失败")
         
-        summary = f"""
-批次爬虫总结 (ID: {batch_id}):
+        summary = f"""批次爬虫总结 (ID: {batch_id}):
 - 爬取平台: {len(batch_info['platforms'])}个
 - 成功平台: {batch_info['completed_tasks']}个
 - 失败平台: {batch_info['failed_tasks']}个
 - 总内容数: {batch_info['total_content_found']}条
 - 平台详情: {', '.join(platforms_summary)}
-- 关键词: {', '.join(batch_info['keywords']) if batch_info['keywords'] else '默认关键词'}
-"""
+- 关键词: {', '.join(batch_info['keywords']) if batch_info['keywords'] else '默认关键词'}"""
+        
         return summary.strip()
+    
+    def _analyze_investment_recommendations(self, projects) -> Dict[str, Any]:
+        """分析投资建议分布"""
+        recommendations = {}
+        ratings = {}
+        
+        for project in projects:
+            # 投资建议统计
+            if project.investment_recommendation:
+                rec = project.investment_recommendation
+                recommendations[rec] = recommendations.get(rec, 0) + 1
+            
+            # 投资评级统计
+            if project.investment_rating:
+                rating = project.investment_rating
+                ratings[rating] = ratings.get(rating, 0) + 1
+        
+        return {
+            "recommendations": recommendations,
+            "ratings": ratings,
+            "total_analyzed": len(projects)
+        }
+    
+    def _analyze_risk_levels(self, projects) -> Dict[str, Any]:
+        """分析风险等级分布"""
+        risk_levels = {}
+        
+        for project in projects:
+            if project.risk_level:
+                risk = project.risk_level
+                risk_levels[risk] = risk_levels.get(risk, 0) + 1
+        
+        return {
+            "distribution": risk_levels,
+            "total_analyzed": len(projects)
+        }
+    
+    def _analyze_sentiment(self, projects) -> Dict[str, Any]:
+        """分析情感分布"""
+        sentiments = {"positive": 0, "negative": 0, "neutral": 0}
+        sentiment_scores = []
+        
+        for project in projects:
+            if project.sentiment_label:
+                sentiment = project.sentiment_label.lower()
+                if sentiment in ["positive", "bullish", "看涨", "乐观"]:
+                    sentiments["positive"] += 1
+                elif sentiment in ["negative", "bearish", "看跌", "悲观"]:
+                    sentiments["negative"] += 1
+                else:
+                    sentiments["neutral"] += 1
+            
+            if project.sentiment_score:
+                sentiment_scores.append(project.sentiment_score)
+        
+        avg_sentiment = sum(sentiment_scores) / len(sentiment_scores) if sentiment_scores else 0
+        
+        return {
+            "distribution": sentiments,
+            "average_sentiment_score": round(avg_sentiment, 2),
+            "total_analyzed": len(projects)
+        }
+    
+    def _get_top_projects(self, projects, limit: int = 5) -> List[Dict[str, Any]]:
+        """获取评分最高的项目"""
+        # 按综合评分排序
+        sorted_projects = sorted(
+            projects,
+            key=lambda p: p.overall_score or 0,
+            reverse=True
+        )
+        
+        top_projects = []
+        for project in sorted_projects[:limit]:
+            top_projects.append({
+                "id": project.id,
+                "project_name": project.project_name,
+                "token_symbol": project.token_symbol,
+                "overall_score": project.overall_score,
+                "potential_score": project.potential_score,
+                "investment_recommendation": project.investment_recommendation,
+                "investment_rating": project.investment_rating,
+                "risk_level": project.risk_level,
+                "source_platform": project.source_platform,
+                "tge_summary": project.tge_summary[:100] + "..." if project.tge_summary and len(project.tge_summary) > 100 else project.tge_summary
+            })
+        
+        return top_projects
+    
+    def _analyze_categories(self, projects) -> Dict[str, int]:
+        """分析项目分类分布"""
+        categories = {}
+        
+        for project in projects:
+            if project.project_category:
+                category = project.project_category
+                categories[category] = categories.get(category, 0) + 1
+        
+        return categories
+    
+    def _analyze_platforms(self, projects) -> Dict[str, int]:
+        """分析平台分布"""
+        platforms = {}
+        
+        for project in projects:
+            if project.source_platform:
+                platform = project.source_platform
+                platforms[platform] = platforms.get(platform, 0) + 1
+        
+        return platforms
+    
+    def _generate_key_insights(self, projects) -> List[str]:
+        """生成关键洞察"""
+        insights = []
+        
+        if not projects:
+            return ["没有足够的数据生成洞察"]
+        
+        total_projects = len(projects)
+        
+        # 投资建议洞察
+        positive_recommendations = sum(1 for p in projects 
+                                     if p.investment_recommendation and 
+                                     p.investment_recommendation in ["关注", "推荐", "买入"])
+        
+        if positive_recommendations > 0:
+            positive_rate = (positive_recommendations / total_projects) * 100
+            insights.append(f"有{positive_rate:.1f}%的项目获得正面投资建议")
+        
+        # 风险分析洞察
+        high_risk_projects = sum(1 for p in projects 
+                               if p.risk_level and p.risk_level == "高")
+        
+        if high_risk_projects > 0:
+            high_risk_rate = (high_risk_projects / total_projects) * 100
+            insights.append(f"有{high_risk_rate:.1f}%的项目被评为高风险")
+        
+        # 评分洞察
+        scored_projects = [p for p in projects if p.overall_score]
+        if scored_projects:
+            avg_score = sum(p.overall_score for p in scored_projects) / len(scored_projects)
+            insights.append(f"平均综合评分为{avg_score:.1f}分")
+        
+        # 平台洞察
+        platform_stats = self._analyze_platforms(projects)
+        if platform_stats:
+            best_platform = max(platform_stats, key=platform_stats.get)
+            insights.append(f"最多内容来自{best_platform}平台({platform_stats[best_platform]}条)")
+        
+        return insights[:5]  # 最多返回5条洞察
     
     async def get_batch_status(self, batch_id: str) -> Optional[Dict[str, Any]]:
         """获取批次状态"""

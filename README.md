@@ -4,7 +4,7 @@
 
 ## 功能特性
 
-- 🕷️ **多平台爬虫**: 支持小红书、微博、抖音、B站、快手、百度贴吧等6大平台
+- 🕷️ **多平台爬虫**: 支持小红书、微博、知乎、抖音、B站、快手、百度贴吧等7大平台
 - 🤖 **AI分析**: 集成第三方AI API，生成精炼的投资建议和风险评估
 - 📡 **RESTful API**: 提供完整的API接口，支持同步/异步、实时搜索等多种调用方式
 - 🔄 **智能去重**: 基于内容哈希的去重机制，避免重复分析
@@ -22,12 +22,9 @@
 ### 一键启动
 
 ```bash
-# 1. 克隆项目（包含submodule）
-git clone --recurse-submodules <项目地址>
+# 1. 克隆项目
+git clone <项目地址>
 cd Web3-TGE-Monitor
-
-# 如果已经克隆但未初始化submodule，运行：
-# git submodule update --init --recursive
 
 # 2. 配置环境变量
 cp .env.example .env
@@ -40,21 +37,21 @@ chmod +x start.sh
 
 ### MediaCrawler依赖说明
 
-本项目依赖MediaCrawler进行社交媒体数据采集。我们使用Git submodule管理这个依赖：
+本项目已将MediaCrawler完全集成到代码库中，无需额外配置：
 
-- **推荐方式**: 使用Git submodule（已自动配置）
+- **集成方式**: MediaCrawler已直接包含在项目中
 - **路径配置**: 在`.env`文件中设置`MEDIACRAWLER_PATH=./external/MediaCrawler`
-- **手动管理**: 如果您有独立的MediaCrawler安装，可以设置自定义路径
+- **配置文件**: 已针对Web3 TGE监控优化配置
 
 ## API 集成指南
 
 ### 基础信息
-- **API Base URL**: `http://localhost:9527/api/v1`
-- **文档地址**: `http://localhost:9527/docs`
-- **Health Check**: `http://localhost:9527/api/v1/system/health`
+- **API Base URL**: `http://localhost:8000/api/v1` (默认端口)
+- **文档地址**: `http://localhost:8000/docs`
+- **Health Check**: `http://localhost:8000/api/v1/system/health`
 
 ### 支持的平台
-- 小红书 (xhs)、微博 (weibo)、抖音 (douyin)、哔哩哔哩 (bilibili)、快手 (kuaishou)、百度贴吧 (tieba)
+- 小红书 (xhs)、微博 (weibo)、知乎 (zhihu)、抖音 (douyin)、哔哩哔哩 (bilibili)、快手 (kuaishou)、百度贴吧 (tieba)
 
 ### 🚀 核心API接口
 
@@ -62,157 +59,225 @@ chmod +x start.sh
 **适用场景**: 需要立即获取完整结果，不希望处理异步轮询
 
 **请求**:
-```http
-POST /api/v1/crawler/batch/sync
-Content-Type: application/json
-
-{
+```bash
+curl -X POST "http://localhost:8000/api/v1/crawler/batch/sync" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "platforms": ["xhs", "zhihu", "weibo", "douyin", "bilibili", "kuaishou", "tieba"],
     "keywords": ["Web3", "TGE", "代币发行"],
-    "platforms": ["xhs", "weibo", "douyin"],
-    "max_count_per_platform": 10,
-    "enable_ai_analysis": true
-}
+    "max_count": 10
+  }'
 ```
 
 **响应**:
 ```json
 {
-    "success": true,
-    "data": {
-        "batch_id": "batch_20250716_001",
-        "overall_status": "completed",
-        "total_tasks": 3,
-        "completed_tasks": 3,
-        "failed_tasks": 0,
-        "overall_progress": 100,
-        "platform_status": {
-            "xhs": {"status": "completed", "count": 8},
-            "weibo": {"status": "completed", "count": 12}
-        },
-        "ai_analysis_status": "completed",
-        "total_content_found": 26,
-        "ai_summary": {
-            "total_projects": 26,
-            "processed_projects": 26,
-            "top_projects": [...]
-        }
+  "success": true,
+  "message": "同步批次爬虫任务完成，批次ID: 35e7e579-b19c-48a5-99e9-5c97dd2c1cd5",
+  "data": {
+    "batch_id": "35e7e579-b19c-48a5-99e9-5c97dd2c1cd5",
+    "overall_status": "completed",
+    "total_tasks": 7,
+    "completed_tasks": 7,
+    "failed_tasks": 0,
+    "overall_progress": 100,
+    "platform_status": {
+      "xhs": {"status": "completed", "content_count": 10},
+      "zhihu": {"status": "completed", "content_count": 9},
+      "weibo": {"status": "completed", "content_count": 0},
+      "douyin": {"status": "completed", "content_count": 1},
+      "bilibili": {"status": "completed", "content_count": 5},
+      "kuaishou": {"status": "completed", "content_count": 4},
+      "tieba": {"status": "completed", "content_count": 0}
     },
-    "message": "同步批次爬虫任务完成"
+    "ai_analysis_status": "completed",
+    "total_content_found": 29,
+    "ai_summary": "批次爬虫总结: 成功爬取29条内容，覆盖7个平台"
+  }
 }
 ```
 
-#### 2. 实时TGE搜索 (推荐)
-**适用场景**: 快速搜索，智能缓存，减少重复爬取
-
+#### 2. 系统健康检查
 **请求**:
-```http
-GET /api/v1/search/realtime?keywords=Web3,TGE&platforms=xhs,weibo,douyin&max_count=20&enable_crawl=true&cache_hours=2
+```bash
+curl -X GET "http://localhost:8000/api/v1/system/health"
 ```
 
 **响应**:
 ```json
 {
-    "success": true,
-    "data": {
-        "analysis_results": [
-            {
-                "token_name": "DeFi Token",
-                "token_symbol": "DFT",
-                "ai_summary": "新兴DeFi项目，具有创新的流动性挖矿机制",
-                "sentiment": "看涨",
-                "recommendation": "关注",
-                "risk_level": "中",
-                "confidence_score": 0.85,
-                "tge_date": "2025-01-15",
-                "source_platform": "xhs",
-                "source_count": 1
-            }
-        ],
-        "search_summary": {
-            "total_results": 18,
-            "cached_results": 12,
-            "crawled_results": 6,
-            "execution_time": 15.2
-        }
-    }
+  "status": "healthy",
+  "timestamp": "2025-01-17T12:00:00Z",
+  "version": "1.0.0",
+  "database": "connected",
+  "platforms": {
+    "registered": 7,
+    "available": 7
+  }
 }
 ```
 
-#### 3. 批次结果聚合
-**适用场景**: 获取已完成批次的详细聚合分析
-
+#### 3. 获取项目数据
 **请求**:
-```http
-GET /api/v1/crawler/batch/{batch_id}/results?include_raw_data=false&limit_per_platform=50
+```bash
+curl -X GET "http://localhost:8000/api/v1/projects?page=1&size=20&sort_by=crawl_time&sort_order=desc"
 ```
 
 **响应**:
 ```json
 {
-    "success": true,
-    "data": {
-        "batch_id": "batch_20250716_001",
-        "platform_results": {
-            "xhs": {
-                "total_count": 10,
-                "success_count": 8,
-                "duplicate_count": 2,
-                "error_count": 0
-            }
-        },
-        "aggregated_stats": {
-            "total_count": 30,
-            "success_count": 26,
-            "platforms_count": 3
-        },
-        "ai_analysis_summary": {
-            "total_projects": 26,
-            "investment_recommendations": {"关注": 15, "谨慎": 8, "回避": 3},
-            "risk_levels": {"高": 3, "中": 18, "低": 5},
-            "top_projects": [...]
-        }
-    }
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "token_name": "DeFi Token",
+        "token_symbol": "DFT",
+        "ai_summary": "创新DeFi项目，具有独特的治理机制",
+        "sentiment": "看涨",
+        "recommendation": "关注",
+        "risk_level": "中",
+        "confidence_score": 0.85,
+        "source_platform": "xhs",
+        "crawl_time": "2025-01-17T12:00:00Z"
+      }
+    ],
+    "total": 156,
+    "page": 1,
+    "size": 20,
+    "pages": 8
+  }
 }
 ```
 
-### 🔍 数据查询接口
-
-#### 项目列表查询
-```http
-GET /api/v1/projects?page=1&size=20&category=DEFI&risk_level=MEDIUM&sort_by=overall_score&sort_order=desc
+#### 4. AI分析处理
+**请求**:
+```bash
+curl -X POST "http://localhost:8000/api/v1/ai/analyze" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "Web3项目ABC即将进行TGE，预计发行1000万代币",
+    "platform": "xhs",
+    "enable_token_extraction": true
+  }'
 ```
 
-#### 项目详情查询
-```http
-GET /api/v1/projects/{project_id}
+**响应**:
+```json
+{
+  "success": true,
+  "data": {
+    "ai_summary": "Web3项目ABC计划进行代币发行",
+    "sentiment": "中性",
+    "recommendation": "关注",
+    "risk_level": "中",
+    "confidence_score": 0.75,
+    "token_name": "ABC",
+    "token_symbol": "ABC",
+    "tge_date": null,
+    "analysis_time": "2025-01-17T12:00:00Z"
+  }
+}
 ```
 
-#### 项目搜索
-```http
-GET /api/v1/projects/search?query=DeFi&page=1&size=20&category=DEFI
+### 🔍 常用查询接口
+
+#### 获取最近爬取的数据
+```bash
+curl -X GET "http://localhost:8000/api/v1/projects/recent?limit=10&hours=24"
 ```
 
-#### 获取最近分析结果
-```http
-GET /api/v1/search/recent?limit=20&hours=24
+#### 按平台筛选项目
+```bash
+curl -X GET "http://localhost:8000/api/v1/projects?platform=xhs&sentiment=看涨&limit=20"
+```
+
+#### 获取单个项目详情
+```bash
+curl -X GET "http://localhost:8000/api/v1/projects/123"
+```
+
+#### 搜索项目
+```bash
+curl -X GET "http://localhost:8000/api/v1/projects/search?query=DeFi&limit=20"
+```
+
+### 🛠️ 管理接口
+
+#### 获取爬虫日志
+```bash
+curl -X GET "http://localhost:8000/api/v1/system/crawler/logs?limit=50"
+```
+
+#### 获取AI处理日志
+```bash
+curl -X GET "http://localhost:8000/api/v1/system/ai/logs?limit=50"
+```
+
+#### 数据库清理
+```bash
+curl -X POST "http://localhost:8000/api/v1/system/cleanup" \
+  -H "Content-Type: application/json" \
+  -d '{"days": 30}'
 ```
 
 ### ⚙️ 最佳实践
 
 #### 接口选择建议
-- **快速获取结果**: 使用 `realtime_search`
-- **完整数据分析**: 使用 `sync_batch_crawl`
-- **历史数据查询**: 使用 `projects` 接口
+- **快速测试**: 使用 `health` 检查系统状态
+- **批量爬取**: 使用 `batch/sync` 一次性获取多平台数据
+- **数据查询**: 使用 `projects` 接口获取历史数据
+- **实时分析**: 使用 `ai/analyze` 接口分析单条内容
 
 #### 参数设置建议
-- `max_count`: 根据需求设置，避免过大
-- `cache_hours`: 根据数据新鲜度要求设置
-- `platforms`: 只选择需要的平台
+- `max_count`: 建议设置为5-50之间，避免请求超时
+- `platforms`: 根据需要选择平台，全选时处理时间较长
+- `keywords`: 支持多关键词，用逗号分隔
 
-#### 安全注意事项
-- **请求频率限制**: 建议单个客户端每分钟不超过60次请求
-- **超时设置**: 同步接口建议设置5分钟超时
-- **错误重试**: 网络错误建议指数退避重试
+#### 错误处理
+- **超时处理**: 同步接口建议设置2-5分钟超时
+- **重试机制**: 网络错误可重试，业务错误不建议重试
+- **限流控制**: 建议单个客户端每分钟不超过30次请求
+
+### 📊 响应状态码
+
+- `200`: 成功
+- `400`: 请求参数错误
+- `404`: 资源不存在
+- `429`: 请求过于频繁
+- `500`: 服务器内部错误
+
+### 🔧 启动API服务
+
+```bash
+# 使用虚拟环境启动
+source venv/bin/activate
+python3 -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+# 或者指定其他端口
+python3 -m uvicorn src.api.main:app --host 0.0.0.0 --port 8003 --reload
+```
+
+### 📋 API测试清单
+
+**基础测试**:
+```bash
+# 1. 检查系统健康状态
+curl -X GET "http://localhost:8000/api/v1/system/health"
+
+# 2. 测试单平台爬取
+curl -X POST "http://localhost:8000/api/v1/crawler/batch/sync" \
+  -H "Content-Type: application/json" \
+  -d '{"platforms": ["xhs"], "keywords": ["Web3"], "max_count": 5}'
+
+# 3. 测试全平台爬取
+curl -X POST "http://localhost:8000/api/v1/crawler/batch/sync" \
+  -H "Content-Type: application/json" \
+  -d '{"platforms": ["xhs", "zhihu", "weibo", "douyin", "bilibili", "kuaishou", "tieba"], "keywords": ["Web3"], "max_count": 5}'
+
+# 4. 查看最近数据
+curl -X GET "http://localhost:8000/api/v1/projects/recent?limit=10"
+```
 
 ## 项目结构
 
@@ -226,7 +291,7 @@ Web3-TGE-Monitor/
 │   ├── database/           # 数据库模块
 │   └── utils/              # 工具模块
 ├── external/               # 外部依赖
-│   └── MediaCrawler/       # MediaCrawler submodule
+│   └── MediaCrawler/       # MediaCrawler完整集成 (已包含)
 ├── tests/                  # 测试代码
 ├── data/                   # 数据存储
 └── docs/                   # 文档

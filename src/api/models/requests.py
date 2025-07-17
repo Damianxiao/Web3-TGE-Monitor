@@ -189,7 +189,7 @@ class BatchCrawlStatusResponse(BaseModel):
     platform_status: Dict[str, Dict] = Field(..., description="各平台状态详情")
     ai_analysis_status: Optional[str] = Field(None, description="AI分析状态")
     total_content_found: int = Field(0, description="总共找到的内容数")
-    ai_summary: Optional[str] = Field(None, description="AI生成的内容总结")
+    ai_summary: Optional[Union[str, Dict[str, Any]]] = Field(None, description="AI生成的内容总结")
 
 
 class CrawlResultResponse(BaseModel):

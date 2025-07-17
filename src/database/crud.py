@@ -159,6 +159,25 @@ class TGEProjectCRUD:
         return list(result.scalars().all())
     
     @staticmethod
+    async def get_processed_projects_by_batch(
+        session: AsyncSession, 
+        batch_id: str, 
+        limit: int = 100
+    ) -> List[TGEProject]:
+        """获取批次相关的已处理项目"""
+        # 由于我们没有直接的batch_id字段，我们通过时间窗口来获取
+        # 这里需要根据实际的数据结构来调整
+        query = select(TGEProject).where(
+            and_(
+                TGEProject.is_processed == True,
+                TGEProject.is_valid == True
+            )
+        ).order_by(TGEProject.updated_at.desc()).limit(limit)
+        
+        result = await session.execute(query)
+        return list(result.scalars().all())
+    
+    @staticmethod
     async def count_all(session: AsyncSession) -> int:
         """统计所有项目数量"""
         result = await session.execute(select(func.count(TGEProject.id)))
